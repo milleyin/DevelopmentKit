@@ -17,7 +17,7 @@
 
 ### 🔹 Swift Package Manager（推荐）
 1. 在 Xcode 选择 **File > Add Packages**
-2. 输入 `https://github.com/your-repo/DevelopmentKit.git`
+2. 输入 `https://github.com/milleyin/DevelopmentKit.git`
 3. 选择最新版本并添加到项目
 
 ---
