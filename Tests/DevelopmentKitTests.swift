@@ -14,7 +14,7 @@ final class DevelopmentKitTests: XCTestCase {
     func testIsPreview() {
         let previewEnv = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"]
         let expected = previewEnv == "1"
-        XCTAssertEqual(isPreview, expected)
+        XCTAssertEqual(DevelopmentKit.isPreview, expected)
     }
     
     /// 测试 `openMailApp()` 是否正确处理未安装邮件应用的情况
@@ -23,7 +23,7 @@ final class DevelopmentKitTests: XCTestCase {
         let mailURL = URL(string: "message://")!
         let canOpen = UIApplication.shared.canOpenURL(mailURL)
         if canOpen {
-            openMailApp()
+            DevelopmentKit.openMailApp()
             XCTAssertTrue(true, "邮件应用打开成功")
         } else {
             XCTAssertFalse(canOpen, "无法打开邮件应用")
@@ -37,7 +37,7 @@ final class DevelopmentKitTests: XCTestCase {
         let settingsURL = URL(string: UIApplication.openSettingsURLString)!
         let canOpen = UIApplication.shared.canOpenURL(settingsURL)
         if canOpen {
-            openAppSettings()
+            DevelopmentKit.openAppSettings()
             XCTAssertTrue(true, "成功打开 App 设置")
         } else {
             XCTAssertFalse(canOpen, "无法打开 App 设置")
@@ -51,17 +51,17 @@ final class DevelopmentKitTests: XCTestCase {
         let validURL = "https://www.apple.com"
         let invalidURL = "not a valid url"
         
-        openWebLink(urlString: validURL)
+        DevelopmentKit.openWebLink(urlString: validURL)
         XCTAssertTrue(true, "成功打开网页：\(validURL)")
         
-        openWebLink(urlString: invalidURL)
+        DevelopmentKit.openWebLink(urlString: invalidURL)
         XCTAssertTrue(true, "无效 URL 应该不会崩溃")
         #endif
     }
     
     /// 测试 `getNetworkType()` 是否正确检测网络类型
     func testGetNetworkType() {
-        let networkType = getNetworkType()
+        let networkType = DevelopmentKit.getNetworkType()
         let validTypes = ["Wi-Fi", "蜂窝移动网络", "有线网络", "其他网络", "无网络连接", "未知"]
         XCTAssertTrue(validTypes.contains(networkType), "返回的网络类型应在预定义的类型范围内")
     }
@@ -70,25 +70,25 @@ final class DevelopmentKitTests: XCTestCase {
     func testCopyToClipboard() {
         #if os(iOS)
         let testString = "Hello, Clipboard!"
-        copyToClipboard(text: testString)
+        DevelopmentKit.copyToClipboard(text: testString)
         XCTAssertEqual(UIPasteboard.general.string, testString, "剪贴板内容应与输入一致")
         #endif
     }
     
     /// 测试 `getAppName()` 是否正确获取 App 名称
     func testGetAppName() {
-        let appName = getAppName()
+        let appName = DevelopmentKit.getAppName()
         XCTAssertFalse(appName.isEmpty, "App 名称不应为空")
     }
     
     /// 测试 `appVersion` 是否能正确获取版本号
     func testAppVersion() {
-        XCTAssertFalse(appVersion.isEmpty, "App 版本号不应为空")
+        XCTAssertFalse(DevelopmentKit.appVersion.isEmpty, "App 版本号不应为空")
     }
     
     /// 测试 `buildNumber` 是否能正确获取编译版本号
     func testBuildNumber() {
-        XCTAssertFalse(buildNumber.isEmpty, "App 编译版本号不应为空")
+        XCTAssertFalse(DevelopmentKit.buildNumber.isEmpty, "App 编译版本号不应为空")
     }
     
     /// 测试 `toYMDFormat()` 是否正确格式化日期
@@ -104,7 +104,6 @@ final class DevelopmentKitTests: XCTestCase {
         XCTAssertEqual(date.toYMDFormat(), expectedDateString, "日期格式化应符合系统时区")
     }
 
-    
     /// 测试 `regexValidation(pattern:)`
     func testRegexValidation() {
         let validEmailUpper = "TEST@EXAMPLE.COM"
@@ -124,7 +123,6 @@ final class DevelopmentKitTests: XCTestCase {
         XCTAssertFalse(invalidEmail4.regexValidation(pattern: emailPattern), "无效邮箱应被拒绝")
     }
 
-    
     /// 测试 `toDate(format:)`
     func testStringToDate() {
         let dateString = "2024-02-25"
@@ -139,4 +137,3 @@ final class DevelopmentKitTests: XCTestCase {
         XCTAssertFalse(hash.isEmpty, "SHA-256 结果不应为空")
     }
 }
-

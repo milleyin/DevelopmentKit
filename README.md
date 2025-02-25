@@ -28,28 +28,28 @@
 ```swift
 import DevelopmentKit
 
-openMailApp()
+DevelopmentKit.openMailApp()
 ```
 
 ### 2️⃣ **打开 App 设置**
 ```swift
 import DevelopmentKit
 
-openAppSettings()
+DevelopmentKit.openAppSettings()
 ```
 
 ### 3️⃣ **打开网页链接**
 ```swift
 import DevelopmentKit
 
-openWebLink(urlString: "https://www.apple.com")
+DevelopmentKit.openWebLink(urlString: "https://www.apple.com")
 ```
 
 ### 4️⃣ **获取网络类型**
 ```swift
 import DevelopmentKit
 
-let networkType = getNetworkType()
+let networkType = DevelopmentKit.getNetworkType()
 print("当前网络类型: \(networkType)")
 ```
 
@@ -59,23 +59,23 @@ import DevelopmentKit
 import CoreLocation
 
 let destination = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
-openInAppleMaps(start: nil, destination: destination, destinationName: "San Francisco")
+DevelopmentKit.openInAppleMaps(start: nil, destination: destination, destinationName: "San Francisco")
 ```
 
 ### 6️⃣ **复制文本到剪贴板**
 ```swift
 import DevelopmentKit
 
-copyToClipboard(text: "Hello, DevelopmentKit!")
+DevelopmentKit.copyToClipboard(text: "Hello, DevelopmentKit!")
 ```
 
 ### 7️⃣ **获取 App 信息**
 ```swift
 import DevelopmentKit
 
-print("App 名称: \(getAppName())")
-print("App 版本: \(appVersion)")
-print("编译版本: \(buildNumber)")
+print("App 名称: \(DevelopmentKit.getAppName())")
+print("App 版本: \(DevelopmentKit.appVersion)")
+print("编译版本: \(DevelopmentKit.buildNumber)")
 ```
 
 ### 8️⃣ **隐藏键盘**
@@ -117,15 +117,16 @@ print("格式化日期: \(date.toYMDFormat())")
 
 | API 名称 | 功能描述 |
 |----------|----------|
-| `openMailApp()` | 打开系统邮件应用 |
-| `openAppSettings()` | 跳转到 iOS 系统设置中的当前应用设置页面 |
-| `openWebLink(urlString: String)` | 使用 `SFSafariViewController` 在应用内打开网页 |
-| `getNetworkType() -> String` | 获取当前网络类型（Wi-Fi、蜂窝、无网络等） |
-| `openInAppleMaps(start: CLLocationCoordinate2D?, destination: CLLocationCoordinate2D, destinationName: String)` | 在 Apple Maps 进行导航 |
-| `copyToClipboard(text: String)` | 复制文本到剪贴板 |
-| `getAppName() -> String` | 获取当前 App 的名称 |
-| `appVersion: String` | 获取当前 App 版本号 |
-| `buildNumber: String` | 获取当前 App 编译版本号 |
+| `DevelopmentKit.isPreview` | 判断是否在 SwiftUI 预览模式运行 |
+| `DevelopmentKit.openMailApp()` | 打开系统邮件应用 |
+| `DevelopmentKit.openAppSettings()` | 跳转到 iOS 系统设置中的当前应用设置页面 |
+| `DevelopmentKit.openWebLink(urlString: String)` | 使用 `SFSafariViewController` 在应用内打开网页 |
+| `DevelopmentKit.getNetworkType() -> String` | 获取当前网络类型（Wi-Fi、蜂窝、无网络等） |
+| `DevelopmentKit.openInAppleMaps(start: CLLocationCoordinate2D?, destination: CLLocationCoordinate2D, destinationName: String)` | 在 Apple Maps 进行导航 |
+| `DevelopmentKit.copyToClipboard(text: String)` | 复制文本到剪贴板 |
+| `DevelopmentKit.getAppName() -> String` | 获取当前 App 的名称 |
+| `DevelopmentKit.appVersion: String` | 获取当前 App 版本号 |
+| `DevelopmentKit.buildNumber: String` | 获取当前 App 编译版本号 |
 | `UIApplication.hideKeyboard()` | 隐藏键盘（发送 `resignFirstResponder` 事件） |
 | `UIColor.init(hex: String, alpha: CGFloat = 1.0)` | 使用十六进制字符串初始化 `UIColor` |
 | `Image.repeating(times: Int, spacing: CGFloat) -> some View` | 使 `Image` 组件重复显示多次 |
