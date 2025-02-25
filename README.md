@@ -3,7 +3,7 @@
 🚀 **DevelopmentKit** 是一个 Swift 轻量级工具库，提供 **iOS 常用功能封装**，涵盖 **应用管理、网络检测、剪贴板、日期处理、正则验证** 等。
 
 ## 📌 功能特性
-- **iOS 设备管理**：邮件、系统设置、Apple Maps 导航
+- **iOS 设备管理**：邮件、系统设置
 - **网络工具**：获取当前网络类型
 - **剪贴板**：复制文本
 - **系统信息**：获取 App 名称、版本号、编译号
@@ -53,23 +53,14 @@ let networkType = DevelopmentKit.getNetworkType()
 print("当前网络类型: \(networkType)")
 ```
 
-### 5️⃣ **在 Apple Maps 导航**
-```swift
-import DevelopmentKit
-import CoreLocation
-
-let destination = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
-DevelopmentKit.openInAppleMaps(start: nil, destination: destination, destinationName: "San Francisco")
-```
-
-### 6️⃣ **复制文本到剪贴板**
+### 5️⃣ **复制文本到剪贴板**
 ```swift
 import DevelopmentKit
 
 DevelopmentKit.copyToClipboard(text: "Hello, DevelopmentKit!")
 ```
 
-### 7️⃣ **获取 App 信息**
+### 6️⃣ **获取 App 信息**
 ```swift
 import DevelopmentKit
 
@@ -78,7 +69,7 @@ print("App 版本: \(DevelopmentKit.appVersion)")
 print("编译版本: \(DevelopmentKit.buildNumber)")
 ```
 
-### 8️⃣ **隐藏键盘**
+### 7️⃣ **隐藏键盘**
 ```swift
 import DevelopmentKit
 import UIKit
@@ -86,7 +77,7 @@ import UIKit
 UIApplication.shared.hideKeyboard()
 ```
 
-### 9️⃣ **字符串 SHA-256 加密**
+### 8️⃣ **字符串 SHA-256 加密**
 ```swift
 import DevelopmentKit
 
@@ -94,7 +85,7 @@ let hash = "Hello, Swift!".sha256
 print("SHA-256: \(hash)")
 ```
 
-### 🔟 **验证电子邮件**
+### 9️⃣ **验证电子邮件**
 ```swift
 import DevelopmentKit
 
@@ -103,7 +94,7 @@ let isValid = email.regexValidation(pattern: "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]
 print("Email 是否有效: \(isValid)")
 ```
 
-### 1️⃣1️⃣ **日期格式化**
+### 🔟 **日期格式化**
 ```swift
 import DevelopmentKit
 
@@ -122,7 +113,6 @@ print("格式化日期: \(date.toYMDFormat())")
 | `DevelopmentKit.openAppSettings()` | 跳转到 iOS 系统设置中的当前应用设置页面 |
 | `DevelopmentKit.openWebLink(urlString: String)` | 使用 `SFSafariViewController` 在应用内打开网页 |
 | `DevelopmentKit.getNetworkType() -> String` | 获取当前网络类型（Wi-Fi、蜂窝、无网络等） |
-| `DevelopmentKit.openInAppleMaps(start: CLLocationCoordinate2D?, destination: CLLocationCoordinate2D, destinationName: String)` | 在 Apple Maps 进行导航 |
 | `DevelopmentKit.copyToClipboard(text: String)` | 复制文本到剪贴板 |
 | `DevelopmentKit.getAppName() -> String` | 获取当前 App 的名称 |
 | `DevelopmentKit.appVersion: String` | 获取当前 App 版本号 |

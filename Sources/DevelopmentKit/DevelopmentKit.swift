@@ -107,14 +107,6 @@ public class DevelopmentKit {
         return networkType
     }
 
-    /// 在 Apple Maps 中导航
-    @MainActor
-    public static func openInAppleMaps(start: CLLocationCoordinate2D?, destination: CLLocationCoordinate2D, destinationName: String) {
-        let startItem = start.map { MKMapItem(placemark: MKPlacemark(coordinate: $0)) } ?? MKMapItem.forCurrentLocation()
-        let destinationItem = MKMapItem(placemark: MKPlacemark(coordinate: destination))
-        destinationItem.name = destinationName
-        MKMapItem.openMaps(with: [startItem, destinationItem], launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-    }
     #endif
 
     // MARK: - 通用功能
