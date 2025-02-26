@@ -15,6 +15,7 @@
 - **UIKit & SwiftUI Extensions**: Colors, image processing, keyboard management
 - **String Processing**: Regex validation, date conversion, SHA-256 encryption
 - **Number Formatting**: Format seconds, percentage conversion
+- **Logging Utility**: Print logs with timestamp, file, and line number
 
 ---
 
@@ -118,6 +119,20 @@ let date = Date()
 print("Formatted date: \(date.toYMDFormat())")
 ```
 
+### 1️⃣1️⃣ **Logging Utility**
+
+```swift
+import DevelopmentKit
+
+Log("This is a log message")
+```
+
+Output:
+
+```
+[2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
+```
+
 ---
 
 ## 📜 API List
@@ -143,6 +158,7 @@ print("Formatted date: \(date.toYMDFormat())")
 | `String.sha256: String`                                      | Compute `SHA-256` hash of a string                           |
 | `Double.toPercentage(decimals: Int) -> String`               | Convert `Double` to percentage string                        |
 | `Int.intToTimeFormat(hoursOnly: Bool) -> String`             | Convert seconds to `hh:mm:ss` format                         |
+| `Log<T>(_ message: T, file: String, line: Int)`              | Print log message with timestamp, file name, and line number |
 
 ---
 

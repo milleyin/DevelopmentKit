@@ -4,7 +4,6 @@
 
 ![DALL·E 2025-02-26 09 29 25 - A modern and stylish banner for 'DevelopmentKit', a Swift development toolkit, designed with a 'workshop' or 'tool shed' aesthetic  The background fea](https://github.com/user-attachments/assets/62d9975b-9187-4af9-8df6-edca1a4963ec)
 
-
 🚀 **DevelopmentKit** 是一个 Swift 轻量级工具库，提供 **iOS 常用功能封装**，涵盖 **应用管理、网络检测、剪贴板、日期处理、正则验证** 等。
 
 ## 📌 功能特性
@@ -15,6 +14,7 @@
 - **UIKit & SwiftUI 扩展**：颜色、图片处理、键盘管理
 - **字符串处理**：正则验证、日期转换、SHA-256 加密
 - **数值计算**：秒数格式化、百分比转换
+- **日志功能**：打印带有时间戳、文件名和行号的日志
 
 ---
 
@@ -95,7 +95,7 @@ print("SHA-256: \(hash)")
 import DevelopmentKit
 
 let email = "test@example.com"
-let isValid = email.regexValidation(pattern: "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$")
+let isValid = email.regexValidation(pattern: "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$")
 print("Email 是否有效: \(isValid)")
 ```
 
@@ -107,31 +107,19 @@ let date = Date()
 print("格式化日期: \(date.toYMDFormat())")
 ```
 
----
+### 1️⃣1️⃣ **日志功能**
 
-## 📜 API 列表
+```swift
+import DevelopmentKit
 
-| API 名称 | 功能描述 |
-|----------|----------|
-| `DevelopmentKit.isPreview` | 判断是否在 SwiftUI 预览模式运行 |
-| `DevelopmentKit.openMailApp()` | 打开系统邮件应用 |
-| `DevelopmentKit.openAppSettings()` | 跳转到 iOS 系统设置中的当前应用设置页面 |
-| `DevelopmentKit.openWebLink(urlString: String)` | 使用 `SFSafariViewController` 在应用内打开网页 |
-| `DevelopmentKit.getNetworkType() -> String` | 获取当前网络类型（Wi-Fi、蜂窝、无网络等） |
-| `DevelopmentKit.copyToClipboard(text: String)` | 复制文本到剪贴板 |
-| `DevelopmentKit.getAppName() -> String` | 获取当前 App 的名称 |
-| `DevelopmentKit.appVersion: String` | 获取当前 App 版本号 |
-| `DevelopmentKit.buildNumber: String` | 获取当前 App 编译版本号 |
-| `UIApplication.hideKeyboard()` | 隐藏键盘（发送 `resignFirstResponder` 事件） |
-| `UIColor.init(hex: String, alpha: CGFloat = 1.0)` | 使用十六进制字符串初始化 `UIColor` |
-| `Image.repeating(times: Int, spacing: CGFloat) -> some View` | 使 `Image` 组件重复显示多次 |
-| `Color.init(hex: String)` | 使用十六进制字符串初始化 `Color` |
-| `Date.toYMDFormat() -> String` | 将 `Date` 转换为 `yyyy-MM-dd` 格式字符串 |
-| `String.regexValidation(pattern: String) -> Bool` | 使用正则表达式验证字符串 |
-| `String.toDate(format: String) -> Date?` | 将字符串转换为 `Date` |
-| `String.sha256: String` | 计算字符串的 `SHA-256` 哈希值 |
-| `Double.toPercentage(decimals: Int) -> String` | 将 `Double` 转换为百分比字符串 |
-| `Int.intToTimeFormat(hoursOnly: Bool) -> String` | 将秒数转换为 `小时:分钟:秒` 格式字符串 |
+Log("这是一条日志信息")
+```
+
+输出：
+
+```
+[2025-02-26 18:00:30]<MainView.swift:42>: 这是一条日志信息
+```
 
 ---
 
