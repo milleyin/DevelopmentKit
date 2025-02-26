@@ -20,7 +20,7 @@ import Network
 public class DevelopmentKit {
     
     /// DevelopmentKit 版本号
-    public static let version: String = "0.0.2(2025011)"
+    public static let version: String = "0.0.2(2025013)"
     
     // MARK: - 运行环境检测
     /**

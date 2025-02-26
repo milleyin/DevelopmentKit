@@ -15,7 +15,7 @@
 - **UIKit & SwiftUI Extensions**: Colors, image processing, keyboard management
 - **String Processing**: Regex validation, date conversion, SHA-256 encryption
 - **Number Formatting**: Format seconds, percentage conversion
-- **Logging Utility**: Print logs with timestamp, file, and line number
+- **Logging Utility**: Print logs with timestamp, file, and line number, and optionally store logs in iCloud
 
 ---
 
@@ -29,7 +29,105 @@
 
 ---
 
-## 🚀 Usage Examples
+## 🎉 Special Feature
+
+### **Logging Utility (`Log(<T>)`)**
+
+#### **Overview**
+
+The `Log()` function logs messages to the Xcode console, and if CloudKit is enabled, it will automatically store logs in the iCloud private database.
+
+#### **Setup Requirements for CloudKit Logging**
+
+Before using CloudKit for logging, complete the following setup:
+
+1. **Enable CloudKit in Xcode**
+   - Open **Signing & Capabilities** in your project.
+   - Add **iCloud** capability.
+   - Enable **CloudKit**.
+   - Ensure a default iCloud container (e.g., `iCloud.com.yourcompany.ABC`) is available.
+
+2. **Update `Info.plist`**
+   Add the following key:
+
+   ```xml
+   <key>NSUbiquitousContainers</key>
+   <dict>
+       <key>iCloud.com.yourcompany.ABC</key>
+       <dict>
+           <key>NSUbiquitousContainerIsDocumentScopePublic</key>
+           <false/>
+           <key>NSUbiquitousContainerSupportedFolderLevels</key>
+           <string>None</string>
+       </dict>
+   </dict>
+   ```
+
+3. **Initialize CloudKit in `AppDelegate.swift` or `App.swift`**
+
+   ```swift
+   import DevelopmentKit
+
+   @main
+   class AppDelegate: UIResponder, UIApplicationDelegate {
+       
+       func application(_ application: UIApplication,
+                        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+           
+           // ✅ Check CloudKit Availability
+           Task {
+               await CloudKitManager.checkCloudKitAvailability()
+           }
+           
+           return true
+       }
+   }
+   ```
+
+   ```swift
+   import DevelopmentKit
+
+   @main
+   struct ABCApp: App {
+       init() {
+           Task {
+               await CloudKitManager.checkCloudKitAvailability()
+           }
+       }
+
+       var body: some Scene {
+           WindowGroup {
+               ContentView()
+           }
+       }
+   }
+   ```
+
+#### **Usage**
+
+```swift
+import DevelopmentKit
+
+Log("This is a log message")
+```
+
+**Output:**
+
+```
+[2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
+✅ Log successfully saved to CloudKit.
+```
+
+If CloudKit is not enabled:
+
+```
+[2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
+⚠️ CloudKit is not available.
+```
+
+---
+
+## 🚀 Other Usage Examples
 
 ### 1️⃣ **Open System Mail App**
 
@@ -119,20 +217,6 @@ let date = Date()
 print("Formatted date: \(date.toYMDFormat())")
 ```
 
-### 1️⃣1️⃣ **Logging Utility**
-
-```swift
-import DevelopmentKit
-
-Log("This is a log message")
-```
-
-Output:
-
-```
-[2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
-```
-
 ---
 
 ## 📜 API List
@@ -156,9 +240,7 @@ Output:
 | `String.regexValidation(pattern: String) -> Bool`            | Validate string using regex                                  |
 | `String.toDate(format: String) -> Date?`                     | Convert string to `Date`                                     |
 | `String.sha256: String`                                      | Compute `SHA-256` hash of a string                           |
-| `Double.toPercentage(decimals: Int) -> String`               | Convert `Double` to percentage string                        |
-| `Int.intToTimeFormat(hoursOnly: Bool) -> String`             | Convert seconds to `hh:mm:ss` format                         |
-| `Log<T>(_ message: T, file: String, line: Int)`              | Print log message with timestamp, file name, and line number |
+| `Log<T>(_ message: T, file: String, line: Int)`              | Print log message with timestamp, file name, and optionally store it in CloudKit |
 
 ---
 

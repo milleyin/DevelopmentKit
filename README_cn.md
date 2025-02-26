@@ -7,6 +7,7 @@
 🚀 **DevelopmentKit** 是一个 Swift 轻量级工具库，提供 **iOS 常用功能封装**，涵盖 **应用管理、网络检测、剪贴板、日期处理、正则验证** 等。
 
 ## 📌 功能特性
+
 - **iOS 设备管理**：邮件、系统设置
 - **网络工具**：获取当前网络类型
 - **剪贴板**：复制文本
@@ -14,22 +15,121 @@
 - **UIKit & SwiftUI 扩展**：颜色、图片处理、键盘管理
 - **字符串处理**：正则验证、日期转换、SHA-256 加密
 - **数值计算**：秒数格式化、百分比转换
-- **日志功能**：打印带有时间戳、文件名和行号的日志
+- **日志功能**：打印日志到 Xcode 控制台，并可选存储到 iCloud（CloudKit）
 
 ---
 
 ## 📦 安装
 
 ### 🔹 Swift Package Manager（推荐）
+
 1. 在 Xcode 选择 **File > Add Packages**
 2. 输入 `https://github.com/milleyin/DevelopmentKit.git`
 3. 选择最新版本并添加到项目
 
 ---
 
-## 🚀 使用示例
+## 🎉 特色功能
+
+### **日志功能 (`Log(<T>)`)**
+
+#### **功能概述**
+
+`Log()` 方法用于将日志信息输出到 Xcode 控制台，并在启用 CloudKit 后，自动存储日志到 iCloud 私有数据库。
+
+#### **CloudKit 日志存储配置**
+
+在使用 CloudKit 存储日志前，请完成以下设置：
+
+1. **在 Xcode 启用 CloudKit**
+   - 在项目的 **Signing & Capabilities** 选项卡中，添加 **iCloud** 能力。
+   - 勾选 **CloudKit** 选项。
+   - 确保 iCloud 容器（例如 `iCloud.com.yourcompany.ABC`）已正确配置。
+
+2. **更新 `Info.plist`**  
+   添加以下键值：
+
+   ```xml
+   <key>NSUbiquitousContainers</key>
+   <dict>
+       <key>iCloud.com.yourcompany.ABC</key>
+       <dict>
+           <key>NSUbiquitousContainerIsDocumentScopePublic</key>
+           <false/>
+           <key>NSUbiquitousContainerSupportedFolderLevels</key>
+           <string>None</string>
+       </dict>
+   </dict>
+   ```
+
+3. **在 `AppDelegate.swift` 或 `App.swift` 中初始化 CloudKit**
+
+   ```swift
+   import DevelopmentKit
+
+   @main
+   class AppDelegate: UIResponder, UIApplicationDelegate {
+       
+       func application(_ application: UIApplication,
+                        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+           
+           // ✅ 检查 CloudKit 可用性
+           Task {
+               await CloudKitManager.checkCloudKitAvailability()
+           }
+           
+           return true
+       }
+   }
+   ```
+
+   ```swift
+   import DevelopmentKit
+
+   @main
+   struct ABCApp: App {
+       init() {
+           Task {
+               await CloudKitManager.checkCloudKitAvailability()
+           }
+       }
+
+       var body: some Scene {
+           WindowGroup {
+               ContentView()
+           }
+       }
+   }
+   ```
+
+#### **使用方法**
+
+```swift
+import DevelopmentKit
+
+Log("这是一条日志信息")
+```
+
+**输出示例：**
+
+```
+[2025-02-26 18:00:30]<MainView.swift:42>: 这是一条日志信息
+✅ 日志已成功保存到 CloudKit。
+```
+
+如果 CloudKit **未启用**：
+
+```
+[2025-02-26 18:00:30]<MainView.swift:42>: 这是一条日志信息
+⚠️ CloudKit 未启用，日志未存储。
+```
+
+---
+
+## 🚀 其他功能示例
 
 ### 1️⃣ **打开系统邮件**
+
 ```swift
 import DevelopmentKit
 
@@ -37,6 +137,7 @@ DevelopmentKit.openMailApp()
 ```
 
 ### 2️⃣ **打开 App 设置**
+
 ```swift
 import DevelopmentKit
 
@@ -44,6 +145,7 @@ DevelopmentKit.openAppSettings()
 ```
 
 ### 3️⃣ **打开网页链接**
+
 ```swift
 import DevelopmentKit
 
@@ -51,6 +153,7 @@ DevelopmentKit.openWebLink(urlString: "https://www.apple.com")
 ```
 
 ### 4️⃣ **获取网络类型**
+
 ```swift
 import DevelopmentKit
 
@@ -59,6 +162,7 @@ print("当前网络类型: \(networkType)")
 ```
 
 ### 5️⃣ **复制文本到剪贴板**
+
 ```swift
 import DevelopmentKit
 
@@ -66,6 +170,7 @@ DevelopmentKit.copyToClipboard(text: "Hello, DevelopmentKit!")
 ```
 
 ### 6️⃣ **获取 App 信息**
+
 ```swift
 import DevelopmentKit
 
@@ -75,6 +180,7 @@ print("编译版本: \(DevelopmentKit.buildNumber)")
 ```
 
 ### 7️⃣ **隐藏键盘**
+
 ```swift
 import DevelopmentKit
 import UIKit
@@ -82,7 +188,8 @@ import UIKit
 UIApplication.shared.hideKeyboard()
 ```
 
-### 8️⃣ **字符串 SHA-256 加密**
+### 8️⃣ **SHA-256 加密**
+
 ```swift
 import DevelopmentKit
 
@@ -91,15 +198,17 @@ print("SHA-256: \(hash)")
 ```
 
 ### 9️⃣ **验证电子邮件**
+
 ```swift
 import DevelopmentKit
 
 let email = "test@example.com"
-let isValid = email.regexValidation(pattern: "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$")
+let isValid = email.regexValidation(pattern: "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$")
 print("Email 是否有效: \(isValid)")
 ```
 
 ### 🔟 **日期格式化**
+
 ```swift
 import DevelopmentKit
 
@@ -107,26 +216,32 @@ let date = Date()
 print("格式化日期: \(date.toYMDFormat())")
 ```
 
-### 1️⃣1️⃣ **日志功能**
+---
 
-```swift
-import DevelopmentKit
+## 📜 API 列表
 
-Log("这是一条日志信息")
-```
-
-输出：
-
-```
-[2025-02-26 18:00:30]<MainView.swift:42>: 这是一条日志信息
-```
+| API 名称 | 功能描述 |
+|----------|----------|
+| `DevelopmentKit.isPreview` | 判断是否在 SwiftUI 预览模式运行 |
+| `DevelopmentKit.openMailApp()` | 打开系统邮件应用 |
+| `DevelopmentKit.openAppSettings()` | 跳转到 iOS 系统设置中的当前应用设置页面 |
+| `DevelopmentKit.openWebLink(urlString: String)` | 在 `SFSafariViewController` 中打开网页 |
+| `DevelopmentKit.getNetworkType() -> String` | 获取当前网络类型（Wi-Fi、蜂窝、无网络等） |
+| `DevelopmentKit.copyToClipboard(text: String)` | 复制文本到剪贴板 |
+| `DevelopmentKit.getAppName() -> String` | 获取当前 App 名称 |
+| `DevelopmentKit.appVersion: String` | 获取当前 App 版本号 |
+| `DevelopmentKit.buildNumber: String` | 获取当前 App 编译版本号 |
+| `UIApplication.hideKeyboard()` | 隐藏键盘（发送 `resignFirstResponder` 事件） |
+| `Log<T>(_ message: T, file: String, line: Int)` | 在 Xcode 控制台打印日志，并在启用 CloudKit 后自动存储到 iCloud |
 
 ---
 
 ## 📄 许可证
+
 本项目采用 **MIT License**，可自由修改和使用，但请保留原作者信息。
 
 ---
 
 ## 💬 反馈 & 贡献
+
 欢迎提 Issue 或 PR 贡献代码！ 🙌

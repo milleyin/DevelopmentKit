@@ -43,7 +43,14 @@ extension DevelopmentKit {
         let fileName = (file as NSString).lastPathComponent
         let timeStamp = Self.logDateFormatter.string(from: Date())
         let logMessage = "[\(timeStamp)]<\(fileName):\(line)>: \(message)"
+        //`print` 输出到 console
         print(logMessage)
+        
+        //写入 CloudKit（如果可用）
+        Task {
+            await CloudKitManager.saveLogToCloud(logMessage, file: file, line: line)
+        }
+        
     }
 
     /**
