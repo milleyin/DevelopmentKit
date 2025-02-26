@@ -4,7 +4,7 @@
 
 🚀 **DevelopmentKit** is a lightweight Swift toolkit providing **essential iOS utilities**, covering **app management, network detection, clipboard, date handling, regex validation**, and more.
 
-🌍 This document is available in [🇨🇳 中文](README.zh.md)
+🌍 This document is available in [🇨🇳 中文](README_cn.md)
 
 ## 📌 Features
 
