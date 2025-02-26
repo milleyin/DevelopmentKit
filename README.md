@@ -1,78 +1,88 @@
 # DevelopmentKit
 
+[中文](README_cn.md)
+
 ![DALL·E 2025-02-26 09 29 25 - A modern and stylish banner for 'DevelopmentKit', a Swift development toolkit, designed with a 'workshop' or 'tool shed' aesthetic  The background fea](https://github.com/user-attachments/assets/62d9975b-9187-4af9-8df6-edca1a4963ec)
 
+🚀 **DevelopmentKit** is a lightweight Swift toolkit providing **essential iOS utilities**, covering **app management, network detection, clipboard, date handling, regex validation**, and more.
 
-🚀 **DevelopmentKit** 是一个 Swift 轻量级工具库，提供 **iOS 常用功能封装**，涵盖 **应用管理、网络检测、剪贴板、日期处理、正则验证** 等。
+## 📌 Features
 
-## 📌 功能特性
-- **iOS 设备管理**：邮件、系统设置
-- **网络工具**：获取当前网络类型
-- **剪贴板**：复制文本
-- **系统信息**：获取 App 名称、版本号、编译号
-- **UIKit & SwiftUI 扩展**：颜色、图片处理、键盘管理
-- **字符串处理**：正则验证、日期转换、SHA-256 加密
-- **数值计算**：秒数格式化、百分比转换
-
----
-
-## 📦 安装
-
-### 🔹 Swift Package Manager（推荐）
-1. 在 Xcode 选择 **File > Add Packages**
-2. 输入 `https://github.com/milleyin/DevelopmentKit.git`
-3. 选择最新版本并添加到项目
+- **iOS Device Management**: Open mail app, system settings
+- **Network Utilities**: Detect current network type
+- **Clipboard**: Copy text to clipboard
+- **System Info**: Get app name, version, build number
+- **UIKit & SwiftUI Extensions**: Colors, image processing, keyboard management
+- **String Processing**: Regex validation, date conversion, SHA-256 encryption
+- **Number Formatting**: Format seconds, percentage conversion
 
 ---
 
-## 🚀 使用示例
+## 📦 Installation
 
-### 1️⃣ **打开系统邮件**
+### 🔹 Swift Package Manager (Recommended)
+
+1. In Xcode, go to **File > Add Packages**
+2. Enter `https://github.com/milleyin/DevelopmentKit.git`
+3. Select the latest version and add it to your project
+
+---
+
+## 🚀 Usage Examples
+
+### 1️⃣ **Open System Mail App**
+
 ```swift
 import DevelopmentKit
 
 DevelopmentKit.openMailApp()
 ```
 
-### 2️⃣ **打开 App 设置**
+### 2️⃣ **Open App Settings**
+
 ```swift
 import DevelopmentKit
 
 DevelopmentKit.openAppSettings()
 ```
 
-### 3️⃣ **打开网页链接**
+### 3️⃣ **Open Web Link**
+
 ```swift
 import DevelopmentKit
 
 DevelopmentKit.openWebLink(urlString: "https://www.apple.com")
 ```
 
-### 4️⃣ **获取网络类型**
+### 4️⃣ **Get Network Type**
+
 ```swift
 import DevelopmentKit
 
 let networkType = DevelopmentKit.getNetworkType()
-print("当前网络类型: \(networkType)")
+print("Current network type: \(networkType)")
 ```
 
-### 5️⃣ **复制文本到剪贴板**
+### 5️⃣ **Copy Text to Clipboard**
+
 ```swift
 import DevelopmentKit
 
 DevelopmentKit.copyToClipboard(text: "Hello, DevelopmentKit!")
 ```
 
-### 6️⃣ **获取 App 信息**
+### 6️⃣ **Get App Info**
+
 ```swift
 import DevelopmentKit
 
-print("App 名称: \(DevelopmentKit.getAppName())")
-print("App 版本: \(DevelopmentKit.appVersion)")
-print("编译版本: \(DevelopmentKit.buildNumber)")
+print("App Name: \(DevelopmentKit.getAppName())")
+print("App Version: \(DevelopmentKit.appVersion)")
+print("Build Number: \(DevelopmentKit.buildNumber)")
 ```
 
-### 7️⃣ **隐藏键盘**
+### 7️⃣ **Hide Keyboard**
+
 ```swift
 import DevelopmentKit
 import UIKit
@@ -80,7 +90,8 @@ import UIKit
 UIApplication.shared.hideKeyboard()
 ```
 
-### 8️⃣ **字符串 SHA-256 加密**
+### 8️⃣ **SHA-256 Hashing**
+
 ```swift
 import DevelopmentKit
 
@@ -88,55 +99,59 @@ let hash = "Hello, Swift!".sha256
 print("SHA-256: \(hash)")
 ```
 
-### 9️⃣ **验证电子邮件**
+### 9️⃣ **Validate Email**
+
 ```swift
 import DevelopmentKit
 
 let email = "test@example.com"
 let isValid = email.regexValidation(pattern: "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$")
-print("Email 是否有效: \(isValid)")
+print("Is valid email: \(isValid)")
 ```
 
-### 🔟 **日期格式化**
+### 🔟 **Date Formatting**
+
 ```swift
 import DevelopmentKit
 
 let date = Date()
-print("格式化日期: \(date.toYMDFormat())")
+print("Formatted date: \(date.toYMDFormat())")
 ```
 
 ---
 
-## 📜 API 列表
+## 📜 API List
 
-| API 名称 | 功能描述 |
-|----------|----------|
-| `DevelopmentKit.isPreview` | 判断是否在 SwiftUI 预览模式运行 |
-| `DevelopmentKit.openMailApp()` | 打开系统邮件应用 |
-| `DevelopmentKit.openAppSettings()` | 跳转到 iOS 系统设置中的当前应用设置页面 |
-| `DevelopmentKit.openWebLink(urlString: String)` | 使用 `SFSafariViewController` 在应用内打开网页 |
-| `DevelopmentKit.getNetworkType() -> String` | 获取当前网络类型（Wi-Fi、蜂窝、无网络等） |
-| `DevelopmentKit.copyToClipboard(text: String)` | 复制文本到剪贴板 |
-| `DevelopmentKit.getAppName() -> String` | 获取当前 App 的名称 |
-| `DevelopmentKit.appVersion: String` | 获取当前 App 版本号 |
-| `DevelopmentKit.buildNumber: String` | 获取当前 App 编译版本号 |
-| `UIApplication.hideKeyboard()` | 隐藏键盘（发送 `resignFirstResponder` 事件） |
-| `UIColor.init(hex: String, alpha: CGFloat = 1.0)` | 使用十六进制字符串初始化 `UIColor` |
-| `Image.repeating(times: Int, spacing: CGFloat) -> some View` | 使 `Image` 组件重复显示多次 |
-| `Color.init(hex: String)` | 使用十六进制字符串初始化 `Color` |
-| `Date.toYMDFormat() -> String` | 将 `Date` 转换为 `yyyy-MM-dd` 格式字符串 |
-| `String.regexValidation(pattern: String) -> Bool` | 使用正则表达式验证字符串 |
-| `String.toDate(format: String) -> Date?` | 将字符串转换为 `Date` |
-| `String.sha256: String` | 计算字符串的 `SHA-256` 哈希值 |
-| `Double.toPercentage(decimals: Int) -> String` | 将 `Double` 转换为百分比字符串 |
-| `Int.intToTimeFormat(hoursOnly: Bool) -> String` | 将秒数转换为 `小时:分钟:秒` 格式字符串 |
-
----
-
-## 📄 许可证
-本项目采用 **MIT License**，可自由修改和使用，但请保留原作者信息。
+| API                                                          | Description                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `DevelopmentKit.isPreview`                                   | Check if running in SwiftUI preview mode                     |
+| `DevelopmentKit.openMailApp()`                               | Open system mail app                                         |
+| `DevelopmentKit.openAppSettings()`                           | Navigate to the current app settings page                    |
+| `DevelopmentKit.openWebLink(urlString: String)`              | Open a web link using `SFSafariViewController`               |
+| `DevelopmentKit.getNetworkType() -> String`                  | Get current network type (Wi-Fi, Cellular, No Network, etc.) |
+| `DevelopmentKit.copyToClipboard(text: String)`               | Copy text to clipboard                                       |
+| `DevelopmentKit.getAppName() -> String`                      | Get current app name                                         |
+| `DevelopmentKit.appVersion: String`                          | Get current app version                                      |
+| `DevelopmentKit.buildNumber: String`                         | Get current app build number                                 |
+| `UIApplication.hideKeyboard()`                               | Hide keyboard (`resignFirstResponder` event)                 |
+| `UIColor.init(hex: String, alpha: CGFloat = 1.0)`            | Initialize `UIColor` using a hex string                      |
+| `Image.repeating(times: Int, spacing: CGFloat) -> some View` | Repeat `Image` component multiple times                      |
+| `Color.init(hex: String)`                                    | Initialize `Color` using a hex string                        |
+| `Date.toYMDFormat() -> String`                               | Convert `Date` to `yyyy-MM-dd` format string                 |
+| `String.regexValidation(pattern: String) -> Bool`            | Validate string using regex                                  |
+| `String.toDate(format: String) -> Date?`                     | Convert string to `Date`                                     |
+| `String.sha256: String`                                      | Compute `SHA-256` hash of a string                           |
+| `Double.toPercentage(decimals: Int) -> String`               | Convert `Double` to percentage string                        |
+| `Int.intToTimeFormat(hoursOnly: Bool) -> String`             | Convert seconds to `hh:mm:ss` format                         |
 
 ---
 
-## 💬 反馈 & 贡献
-欢迎提 Issue 或 PR 贡献代码！ 🙌
+## 📄 License
+
+This project is licensed under the **MIT License**. You are free to modify and use it, but please retain the original author information.
+
+---
+
+## 💬 Feedback & Contribution
+
+Feel free to open an issue or submit a PR! 🙌
