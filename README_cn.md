@@ -29,80 +29,15 @@
 
 ---
 
-## 🎉 特色功能
+# 🎉 特色功能
 
-### **日志功能 (`Log(<T>)`)**
+## **日志功能 (`Log(<T>)`)**
 
-#### **功能概述**
+### **功能概述**
 
-`Log()` 方法用于将日志信息输出到 Xcode 控制台，并在启用 CloudKit 后，自动存储日志到 iCloud 私有数据库。
+`Log()` 方法用于将日志信息输出到 Xcode 控制台。目前仅支持本地 `print()` 输出，云存储功能（如 CloudKit 或其他服务器存储）仍在开发中。
 
-#### **CloudKit 日志存储配置**
-
-在使用 CloudKit 存储日志前，请完成以下设置：
-
-1. **在 Xcode 启用 CloudKit**
-   - 在项目的 **Signing & Capabilities** 选项卡中，添加 **iCloud** 能力。
-   - 勾选 **CloudKit** 选项。
-   - 确保 iCloud 容器（例如 `iCloud.com.yourcompany.ABC`）已正确配置。
-
-2. **更新 `Info.plist`**  
-   添加以下键值：
-
-   ```xml
-   <key>NSUbiquitousContainers</key>
-   <dict>
-       <key>iCloud.com.yourcompany.ABC</key>
-       <dict>
-           <key>NSUbiquitousContainerIsDocumentScopePublic</key>
-           <false/>
-           <key>NSUbiquitousContainerSupportedFolderLevels</key>
-           <string>None</string>
-       </dict>
-   </dict>
-   ```
-
-3. **在 `AppDelegate.swift` 或 `App.swift` 中初始化 CloudKit**
-
-   ```swift
-   import DevelopmentKit
-
-   @main
-   class AppDelegate: UIResponder, UIApplicationDelegate {
-       
-       func application(_ application: UIApplication,
-                        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-           
-           // ✅ 检查 CloudKit 可用性
-           Task {
-               await CloudKitManager.checkCloudKitAvailability()
-           }
-           
-           return true
-       }
-   }
-   ```
-
-   ```swift
-   import DevelopmentKit
-
-   @main
-   struct ABCApp: App {
-       init() {
-           Task {
-               await CloudKitManager.checkCloudKitAvailability()
-           }
-       }
-
-       var body: some Scene {
-           WindowGroup {
-               ContentView()
-           }
-       }
-   }
-   ```
-
-#### **使用方法**
+### **使用方法**
 
 ```swift
 import DevelopmentKit
@@ -114,16 +49,9 @@ Log("这是一条日志信息")
 
 ```
 [2025-02-26 18:00:30]<MainView.swift:42>: 这是一条日志信息
-✅ 日志已成功保存到 CloudKit。
 ```
 
-如果 CloudKit **未启用**：
-
-```
-[2025-02-26 18:00:30]<MainView.swift:42>: 这是一条日志信息
-⚠️ CloudKit 未启用，日志未存储。
-```
-
+⚠️ **注意：** 服务器端日志存储功能尚未实现。未来更新将支持云端日志存储功能。
 ---
 
 ## 🚀 其他功能示例

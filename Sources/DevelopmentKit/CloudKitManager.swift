@@ -30,7 +30,7 @@ internal class CloudKitManager {
     }
 
     /// 初始化 CloudKit 容器
-    private static let container: CKContainer? = createContainer(identifier: "iCloud.com.yourcompany.ABC") // ✅ 可动态传入
+    private static let container: CKContainer? = createContainer(identifier: "iCloud.in.mille.Traveller") // ✅ 可动态传入
 
     /// 仅在 `container` 有效时才初始化 `database`
     private static var database: CKDatabase? {
