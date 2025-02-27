@@ -51,7 +51,7 @@ Log("This is a log message")
 [2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
 ```
 
-⚠️ **Note:** Server-side log storage is not yet implemented. Future updates will include options for cloud logging and remote storage.
+### ⚠️ **Note:** Server-side log storage is not yet implemented. Future updates will include options for cloud logging and remote storage.
 ---
 
 ## 🚀 Other Usage Examples
