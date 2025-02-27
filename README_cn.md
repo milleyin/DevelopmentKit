@@ -163,6 +163,20 @@ print("格式化日期: \(date.toYMDFormat())")
 
 ---
 
+## 如何参与
+
+📌 分支管理规范 (Branch Management Guidelines)
+
+🚫 请勿 Fork main 分支
+    •    main 分支用于发布 已通过测试的稳定版本 代码，请勿直接 Fork 此分支。
+
+🚀 开发 & 测试分支 (Dev)
+    •    Dev 分支为 测试分支，所有功能修改和代码变更都会 首先合并到此分支进行测试。
+    •    Dev 分支是 main 分支的 唯一来源，即 main 分支的更新 只能从 Dev 分支合并。
+    •    如欲参与开发，请 Fork Dev 分支，而非 main 分支。
+
+---
+
 ## 📄 许可证
 
 本项目采用 **MIT License**，可自由修改和使用，但请保留原作者信息。
