@@ -134,9 +134,9 @@ public class DevelopmentKit {
     }
     
     /// 公开方法，让外部模块检查 CloudKit 可用性
-    public static func checkCloudKit() async throws {
-        try await CloudKitManager.checkCloudKitAvailability()
-    }
+//    public static func checkCloudKit() async throws {
+//        try await CloudKitManager.checkCloudKitAvailability()
+//    }
 }
 
 

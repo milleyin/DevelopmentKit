@@ -47,13 +47,13 @@ extension DevelopmentKit {
         print(logMessage)
         
         //写入 CloudKit（如果可用）
-        Task {
-            do {
-                try await CloudKitManager.saveLogToCloud(logMessage, file: file, line: line)
-            } catch {
-                print("⚠️ CloudKit 日志存储失败: \(error.localizedDescription)")
-            }
-        }
+//        Task {
+//            do {
+//                try await CloudKitManager.saveLogToCloud(logMessage, file: file, line: line)
+//            } catch {
+//                print("⚠️ CloudKit 日志存储失败: \(error.localizedDescription)")
+//            }
+//        }
 
         
     }
