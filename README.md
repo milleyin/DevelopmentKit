@@ -246,7 +246,9 @@ print("Formatted date: \(date.toYMDFormat())")
 
 ## 📄 License
 
-This project is licensed under the **MIT License**. You are free to modify and use it, but please retain the original author information.
+**This project is licensed under the GNU General Public License v3.0 (GPL v3.0).**
+You are free to modify, distribute, and use it under the terms of the GPL v3.0 license.
+Any derivative works must also be licensed under GPL v3.0. Please retain the original author information in all copies and modifications.
 
 ---
 
