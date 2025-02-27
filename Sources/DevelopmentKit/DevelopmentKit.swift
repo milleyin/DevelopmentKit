@@ -25,16 +25,16 @@ public class DevelopmentKit {
     // MARK: - 运行环境检测
     /**
      运行环境检测，判断是否在 SwiftUI 预览模式下
-
+     
      - Returns: `true` 表示当前代码在 SwiftUI 预览模式运行
      */
     public static let isPreview: Bool = {
         return ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }()
-
+    
     // MARK: - iOS 专属功能
-    #if os(iOS)
-
+#if os(iOS)
+    
     /// 打开系统邮箱 App
     @MainActor
     public static func openMailApp() {
@@ -44,7 +44,7 @@ public class DevelopmentKit {
         }
         UIApplication.shared.open(url)
     }
-
+    
     /// 打开 iOS 设置内的本 App 设置
     @MainActor
     public static func openAppSettings() {
@@ -53,7 +53,7 @@ public class DevelopmentKit {
         }
         UIApplication.shared.open(url)
     }
-
+    
     /// 打开网页链接
     @MainActor
     public static func openWebLink(urlString: String) {
@@ -74,15 +74,15 @@ public class DevelopmentKit {
             print("iOS 版本过低，不支持打开 Safari")
         }
     }
-
+    
     /// 获取当前网络类型
     public static func getNetworkType() -> String {
         let monitor = NWPathMonitor()
         let queue = DispatchQueue.global(qos: .background)
         var networkType = "未知"
-
+        
         let semaphore = DispatchSemaphore(value: 0)
-
+        
         monitor.pathUpdateHandler = { path in
             DispatchQueue.main.async {
                 if path.usesInterfaceType(.wifi) {
@@ -101,36 +101,41 @@ public class DevelopmentKit {
             semaphore.signal()
         }
         monitor.start(queue: queue)
-
+        
         _ = semaphore.wait(timeout: .now() + 0.5)
         return networkType
     }
-
-    #endif
-
+    
+#endif
+    
     // MARK: - 通用功能
     /// 复制文本到剪贴板
     public static func copyToClipboard(text: String) {
-        #if canImport(UIKit)
+#if canImport(UIKit)
         UIPasteboard.general.string = text
-        #endif
+#endif
     }
-
+    
     /// 获取 App 名称
     public static func getAppName() -> String {
         return Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ??
-               Bundle.main.infoDictionary?["CFBundleName"] as? String ??
-               "未知应用"
+        Bundle.main.infoDictionary?["CFBundleName"] as? String ??
+        "未知应用"
     }
-
+    
     /// 获取软件版本号
     public static var appVersion: String {
         return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
     }
-
+    
     /// 获取编译版本号
     public static var buildNumber: String {
         return Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+    }
+    
+    /// 公开方法，让外部模块检查 CloudKit 可用性
+    public static func checkCloudKit() async throws {
+        try await CloudKitManager.checkCloudKitAvailability()
     }
 }
 
