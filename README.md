@@ -170,18 +170,15 @@ print("Formatted date: \(date.toYMDFormat())")
 
 ---
 
-## How to fork?
+## 🚀 Contribution Guidelines
 
-📌 Branch Management Guidelines (English Version)
+### ❌ Do NOT fork the `main` branch
+The `main` branch is used for **stable and tested releases** only.
 
-🚫 Do NOT fork the main branch
-    •    The main branch is used to release stable versions that have passed all necessary tests.
-    •    Please do NOT fork the main branch.
-
-🚀 Development & Testing Branch (Dev)
-    •    The Dev branch serves as the testing branch, where all modifications and feature implementations are merged for testing.
-    •    The main branch is exclusively updated from the Dev branch; no direct changes are allowed in main.
-    •    If you wish to contribute, please fork the Dev branch instead of main.
+### ✅ Fork the `dev` branch
+- The `dev` branch is the **testing branch**, where all modifications are merged and tested.
+- **`dev` is the only source for `main`**.
+- If you want to contribute, please fork the `dev` branch instead.
 
 ---
 
