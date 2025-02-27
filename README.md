@@ -170,6 +170,18 @@ print("Formatted date: \(date.toYMDFormat())")
 
 ---
 
+## 🚀 Contribution Guidelines
+
+### ❌ Do NOT fork the `main` branch
+The `main` branch is used for **stable and tested releases** only.
+
+### ✅ Fork the `dev` branch
+- The `dev` branch is the **testing branch**, where all modifications are merged and tested.
+- **`dev` is the only source for `main`**.
+- If you want to contribute, please fork the `dev` branch instead.
+
+---
+
 ## 📄 License
 
 **This project is licensed under the GNU General Public License v3.0 (GPL v3.0).**
