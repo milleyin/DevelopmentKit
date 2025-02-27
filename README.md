@@ -31,79 +31,13 @@
 
 ## 🎉 Special Feature
 
-### **Logging Utility (`Log(<T>)`)**
+## Logging Utility (`Log(<T>)`)
 
-#### **Overview**
+### Overview
 
-The `Log()` function logs messages to the Xcode console, and if CloudKit is enabled, it will automatically store logs in the iCloud private database.
+The `Log()` function logs messages to the Xcode console. Currently, it only supports local logging via `print()`. Cloud storage functionality (e.g., CloudKit or other backend solutions) is under development.
 
-#### **Setup Requirements for CloudKit Logging**
-
-Before using CloudKit for logging, complete the following setup:
-
-1. **Enable CloudKit in Xcode**
-   - Open **Signing & Capabilities** in your project.
-   - Add **iCloud** capability.
-   - Enable **CloudKit**.
-   - Ensure a default iCloud container (e.g., `iCloud.com.yourcompany.ABC`) is available.
-
-2. **Update `Info.plist`**
-   Add the following key:
-
-   ```xml
-   <key>NSUbiquitousContainers</key>
-   <dict>
-       <key>iCloud.com.yourcompany.ABC</key>
-       <dict>
-           <key>NSUbiquitousContainerIsDocumentScopePublic</key>
-           <false/>
-           <key>NSUbiquitousContainerSupportedFolderLevels</key>
-           <string>None</string>
-       </dict>
-   </dict>
-   ```
-
-3. **Initialize CloudKit in `AppDelegate.swift` or `App.swift`**
-
-   ```swift
-   import DevelopmentKit
-
-   @main
-   class AppDelegate: UIResponder, UIApplicationDelegate {
-       
-       func application(_ application: UIApplication,
-                        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-           
-           // ✅ Check CloudKit Availability
-           Task {
-               await CloudKitManager.checkCloudKitAvailability()
-           }
-           
-           return true
-       }
-   }
-   ```
-
-   ```swift
-   import DevelopmentKit
-
-   @main
-   struct ABCApp: App {
-       init() {
-           Task {
-               await CloudKitManager.checkCloudKitAvailability()
-           }
-       }
-
-       var body: some Scene {
-           WindowGroup {
-               ContentView()
-           }
-       }
-   }
-   ```
-
-#### **Usage**
+### Usage
 
 ```swift
 import DevelopmentKit
@@ -115,16 +49,9 @@ Log("This is a log message")
 
 ```
 [2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
-✅ Log successfully saved to CloudKit.
 ```
 
-If CloudKit is not enabled:
-
-```
-[2025-02-26 18:00:30]<MainView.swift:42>: This is a log message
-⚠️ CloudKit is not available.
-```
-
+⚠️ **Note:** Server-side log storage is not yet implemented. Future updates will include options for cloud logging and remote storage.
 ---
 
 ## 🚀 Other Usage Examples
