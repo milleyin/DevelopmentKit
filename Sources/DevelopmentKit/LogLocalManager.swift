@@ -7,7 +7,7 @@
 
 import Foundation
 
-actor LogLocalManager {
+internal actor LogLocalManager {
     static let shared = LogLocalManager()
     private let logDirectory: URL
     private var logBuffer: [String] = []  // **日志缓存**

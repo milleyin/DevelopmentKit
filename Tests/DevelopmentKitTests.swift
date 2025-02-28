@@ -67,13 +67,13 @@ final class DevelopmentKitTests: XCTestCase {
     }
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
-//    func testCopyToClipboard() {
-//#if os(iOS)
-//        let testString = "Hello, Clipboard!"
-//        DevelopmentKit.copyToClipboard(text: testString)
-//        XCTAssertEqual(UIPasteboard.general.string, testString, "剪贴板内容应与输入一致")
-//#endif
-//    }
+    func testCopyToClipboard() {
+#if os(iOS)
+        let testString = "Hello, Clipboard!"
+        DevelopmentKit.copyToClipboard(text: testString)
+        XCTAssertEqual(UIPasteboard.general.string, testString, "剪贴板内容应与输入一致")
+#endif
+    }
     
     /// 测试 `getAppName()` 是否正确获取 App 名称
     func testGetAppName() {

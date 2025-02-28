@@ -23,19 +23,59 @@ public class DevelopmentKit {
     public static let version: String = "0.0.3(2025023)"
     
     // MARK: - 运行环境检测
+
     /**
-     运行环境检测，判断是否在 SwiftUI 预览模式下
-     
-     - Returns: `true` 表示当前代码在 SwiftUI 预览模式运行
+     运行环境检测，判断当前代码是否在 SwiftUI 预览模式下执行。
+
+     - Important: 该属性主要用于在 SwiftUI 预览 (`Xcode Previews`) 中执行特定逻辑，
+       例如避免运行不兼容的代码或提供虚拟数据。
+     - Attention: 仅适用于 `Xcode` 预览模式，在真实设备或模拟器上运行时，该值始终为 `false`。
+     - Bug: 在某些情况下，环境变量可能无法正确传递，建议在 `DEBUG` 模式下手动检查是否正确。
+     - Warning: 不要依赖该属性进行关键业务逻辑的判断，该值仅适用于调试和 UI 预览环境。
+     - Requires: 需要 `ProcessInfo.processInfo.environment` 提供正确的 `XCODE_RUNNING_FOR_PREVIEWS` 变量。
+     - Remark: 适用于 SwiftUI `PreviewProvider`，在普通 `Simulator` 或 `Device` 运行时，该值不会生效。
+     - Note: 如果该值为 `true`，可用于返回模拟数据，避免真实网络请求或数据库操作。
+
+     示例：
+
+     ```swift
+     if isPreview {
+         print("当前处于 SwiftUI 预览模式")
+     }
+     ```
+
+     - Returns:
+       `true` 表示当前代码在 SwiftUI 预览模式 (`Xcode Previews`) 运行。
+       `false` 则表示在正常运行环境。
      */
     public static let isPreview: Bool = {
         return ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }()
+
     
     // MARK: - iOS 专属功能
 #if os(iOS)
     
-    /// 打开系统邮箱 App
+    /**
+     打开系统邮箱 App。
+
+     - Important: 该方法会尝试打开 `message://` URL，
+       以启动系统默认的邮件应用。
+     - Attention: 仅适用于 iOS 设备，macOS 不支持。
+     - Bug: 某些情况下，系统可能不会正确响应 `message://`，
+       建议用户手动检查邮件应用是否可用。
+     - Warning: 该方法依赖 `UIApplication.shared.open`，
+       需要在主线程调用，建议在 `@MainActor` 环境中执行。
+     - Requires: 需要 `UIApplication.shared.canOpenURL(url)`
+       返回 `true` 才能成功打开邮件应用。
+     - Note: 如果设备上未安装邮件应用，该方法不会有任何作用。
+
+     示例：
+
+     ```swift
+     openMailApp()
+     ```
+     */
     @MainActor
     public static func openMailApp() {
         guard let url = URL(string: "message://"), UIApplication.shared.canOpenURL(url) else {
@@ -44,8 +84,25 @@ public class DevelopmentKit {
         }
         UIApplication.shared.open(url)
     }
-    
-    /// 打开 iOS 设置内的本 App 设置
+
+    /**
+     打开 iOS 设置内的当前 App 设置。
+
+     - Important: 该方法会尝试打开 `UIApplication.openSettingsURLString`，
+       以便用户直接跳转到本 App 在 iOS 设置中的界面。
+     - Attention: 仅适用于 iOS 设备，在 macOS 上不可用。
+     - Bug: 在某些情况下，系统可能不会正确响应 URL，建议用户手动检查。
+     - Warning: 该方法依赖 `UIApplication.shared.open`，
+       需要在主线程调用，建议在 `@MainActor` 环境中执行。
+     - Requires: 需要 `UIApplication.shared.canOpenURL(url)` 返回 `true` 才能成功打开。
+     - Note: 该方法适用于引导用户更改权限、通知或其他 App 相关设置。
+
+     示例：
+
+     ```swift
+     openAppSettings()
+     ```
+     */
     @MainActor
     public static func openAppSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString), UIApplication.shared.canOpenURL(url) else {
@@ -53,8 +110,26 @@ public class DevelopmentKit {
         }
         UIApplication.shared.open(url)
     }
-    
-    /// 打开网页链接
+
+
+    /**
+     打开网页链接。
+
+     - Important: 该方法会尝试打开指定的 URL。
+       在 iOS 16.0 及以上版本，会使用 `SFSafariViewController` 进行网页展示。
+     - Attention: 仅适用于 iOS 设备，macOS 不适用。
+     - Bug: 如果 `urlString` 无效或无法解析，则方法不会执行任何操作。
+     - Warning: 低于 iOS 16.0 的设备不支持 `SFSafariViewController`，
+       可能需要额外处理。
+     - Requires: 需要传入有效的 `urlString`，否则不会执行任何操作。
+     - Note: 该方法适用于在 App 内部打开网页，而不是跳转到外部 Safari 浏览器。
+
+     示例：
+
+     ```swift
+     openWebLink(urlString: "https://www.apple.com")
+     ```
+     */
     @MainActor
     public static func openWebLink(urlString: String) {
         guard let url = URL(string: urlString) else {
@@ -75,7 +150,24 @@ public class DevelopmentKit {
         }
     }
     
-    /// 获取当前网络类型
+    /**
+     获取当前网络类型。
+
+     - Important: 该方法使用 `NWPathMonitor` 监测当前网络连接类型。
+     - Attention: 该方法在 `DispatchQueue.global(qos: .background)` 线程中执行，
+       并使用 `DispatchSemaphore` 进行同步等待。
+     - Bug: 由于 `NWPathMonitor` 的异步特性，可能会有一定的延迟。
+     - Warning: 该方法可能会影响主线程，建议避免在 UI 线程中直接调用。
+     - Requires: 需要 `Network` 框架支持，适用于 iOS 12 及以上系统。
+     - Note: 可能的返回值包括 `Wi-Fi`、`蜂窝移动网络`、`有线网络`、`其他网络` 和 `无网络连接`。
+
+     示例：
+
+     ```swift
+     let networkType = getNetworkType()
+     print("当前网络类型: \(networkType)")
+     ```
+     */
     public static func getNetworkType() -> String {
         let monitor = NWPathMonitor()
         let queue = DispatchQueue.global(qos: .background)
@@ -105,49 +197,138 @@ public class DevelopmentKit {
         _ = semaphore.wait(timeout: .now() + 0.5)
         return networkType
     }
+
     
 #endif
     
     // MARK: - 通用功能
-    /// 复制文本到剪贴板
+
+    /**
+     复制文本到剪贴板。
+
+     - Important: 该方法使用 `UIPasteboard.general` 将文本复制到剪贴板。
+     - Attention: 仅适用于 iOS 设备，macOS 不适用。
+     - Warning: 该方法仅在 `UIKit` 可用时生效，
+       在 `SwiftUI` 或其他非 `UIKit` 设备上可能无法运行。
+     - Requires: 需要 `UIKit` 框架支持。
+     - Note: 复制后的文本可以在任何支持粘贴功能的应用中使用。
+
+     示例：
+
+     ```swift
+     copyToClipboard(text: "Hello, world!")
+     ```
+     */
     public static func copyToClipboard(text: String) {
-#if canImport(UIKit)
+    #if canImport(UIKit)
         UIPasteboard.general.string = text
-#endif
+    #endif
     }
+
     
-    /// 获取 App 名称
+    /**
+     获取 App 名称。
+
+     - Important: 该方法从 `Bundle.main.infoDictionary` 中读取 `CFBundleDisplayName`
+       或 `CFBundleName` 以获取应用名称。
+     - Attention: 如果 `CFBundleDisplayName` 为空，则回退到 `CFBundleName`。
+     - Warning: 该方法可能会返回 `未知应用`，如果 `info.plist` 中没有正确配置应用名称。
+     - Requires: 需要访问 `Bundle.main.infoDictionary`。
+     - Note: 适用于所有 iOS 设备，可用于日志记录或 UI 展示应用名称。
+
+     示例：
+
+     ```swift
+     let appName = getAppName()
+     print("当前 App 名称: \(appName)")
+     ```
+     */
     public static func getAppName() -> String {
         return Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ??
         Bundle.main.infoDictionary?["CFBundleName"] as? String ??
         "未知应用"
     }
     
-    /// 获取软件版本号
+    /**
+     获取软件版本号。
+
+     - Important: 该方法从 `Bundle.main.infoDictionary` 中读取 `CFBundleShortVersionString`
+       以获取应用的当前版本号。
+     - Attention: 如果 `CFBundleShortVersionString` 为空，则返回 `Unknown`。
+     - Requires: 需要访问 `Bundle.main.infoDictionary`。
+     - Note: 适用于所有 iOS 设备，可用于显示应用版本信息。
+
+     示例：
+
+     ```swift
+     let version = appVersion
+     print("当前软件版本: \(version)")
+     ```
+     */
     public static var appVersion: String {
         return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
     }
     
-    /// 获取编译版本号
+    /**
+     获取编译版本号。
+
+     - Important: 该方法从 `Bundle.main.infoDictionary` 中读取 `CFBundleVersion`
+       以获取应用的编译版本号。
+     - Attention: 如果 `CFBundleVersion` 为空，则返回 `Unknown`。
+     - Requires: 需要访问 `Bundle.main.infoDictionary`。
+     - Note: 适用于所有 iOS 设备，可用于显示应用的编译版本信息。
+
+     示例：
+
+     ```swift
+     let build = buildNumber
+     print("当前编译版本号: \(build)")
+     ```
+     */
     public static var buildNumber: String {
         return Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
     }
     
-    /// 公开方法，让外部模块检查 CloudKit 可用性
-//    public static func checkCloudKit() async throws {
-//        try await CloudKitManager.checkCloudKitAvailability()
-//    }
 }
 
 
 // MARK: - 全局方法
 
+/**
+ 记录日志信息。
+
+ - Important: 该方法封装了 `DevelopmentKit.Log`，
+   便于在 `console` 输出日志信息，并调用 `LogLocalManager` 进行本地存储。
+ - Attention: 默认情况下，会记录调用该方法的文件名和行号，
+   便于在日志中追踪具体的代码位置。
+ - Bug: 如果 `LogLocalManager` 由于权限或存储限制无法写入文件，日志可能丢失。
+ - Warning: 该方法仅在 `iOS/macOS` 设备上有效，
+   并依赖 `FileManager` 存储日志。
+ - Requires: 需要 `LogLocalManager` 进行本地存储，并确保日志目录存在。
+ - Note:
+   1. 日志存储路径：`Application Support/Logs/{BundleID}/{yyyy-MM-dd}.log`
+   2. 日志格式：NDJSON，每条日志为独立 JSON 行。
+   3. 触发写入条件：
+      - **缓存日志 100 条** 或 **2 秒未写入** 时自动 flush。
+      - **超过 10 条日志** 触发写入。
+
+ 示例：
+
+ ```swift
+ Log("应用启动成功")
+ ```
+
+ - Parameters:
+   - message: 要记录的日志内容。
+   - file: 调用该方法的文件路径，默认为 `#file`。
+   - line: 调用该方法的代码行号，默认为 `#line`。
+ */
 @MainActor
 public func Log<T>(_ message: T,
                    file: String = #file,
                    line: Int = #line) {
-    
     DevelopmentKit.Log(message, file: file, line: line)
 }
+
 
 
