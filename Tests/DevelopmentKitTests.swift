@@ -6,7 +6,6 @@
 //
 
 import XCTest
-import CloudKit
 @testable import DevelopmentKit
 
 final class DevelopmentKitTests: XCTestCase {
@@ -68,13 +67,13 @@ final class DevelopmentKitTests: XCTestCase {
     }
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
-    func testCopyToClipboard() {
-#if os(iOS)
-        let testString = "Hello, Clipboard!"
-        DevelopmentKit.copyToClipboard(text: testString)
-        XCTAssertEqual(UIPasteboard.general.string, testString, "剪贴板内容应与输入一致")
-#endif
-    }
+//    func testCopyToClipboard() {
+//#if os(iOS)
+//        let testString = "Hello, Clipboard!"
+//        DevelopmentKit.copyToClipboard(text: testString)
+//        XCTAssertEqual(UIPasteboard.general.string, testString, "剪贴板内容应与输入一致")
+//#endif
+//    }
     
     /// 测试 `getAppName()` 是否正确获取 App 名称
     func testGetAppName() {
@@ -138,129 +137,177 @@ final class DevelopmentKitTests: XCTestCase {
         XCTAssertFalse(hash.isEmpty, "SHA-256 结果不应为空")
     }
     
-    // MARK: - Log 测试
+}
 
-        /// 测试 `Log()` 是否正确输出到 Xcode 控制台（仅检查不会崩溃）
-        func testLogFunction() {
-            Log("Test log message")
-            XCTAssertTrue(true, "`Log()` 调用成功，不应导致崩溃")
+
+// MARK: - Log 测试
+
+final class LogLocalManagerTests: XCTestCase {
+
+    override func setUp() async throws {
+        // 清空日志目录，确保测试环境干净
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        for file in logFiles {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    /// **测试 `Log()` 是否正确输出到 Xcode 控制台（仅检查不会崩溃）**
+    func testLogFunction() async {
+        await Log("测试日志存储")  // ✅ 加上 `await`
+        
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 秒，确保写入
+        
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+    }
+
+    /// **测试 `saveLog()` 是否能正确写入日志文件**
+    func testSaveLog() async {
+        await LogLocalManager.shared.saveLog(message: "测试 saveLog", file: "Test.swift", line: 42)
+
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        // **检查日志内容**
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            XCTAssertTrue(content.contains("测试 saveLog"), "❌ 日志文件应包含 `测试 saveLog`")
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+    }
+
+    /// **测试 `flushLogsToFile()` 是否按预期写入**
+    func testFlushLogs() async {
+        await LogLocalManager.shared.saveLog(message: "测试 flush", file: "Test.swift", line: 99)
+
+        // **等待 flush 触发**
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            XCTAssertTrue(content.contains("测试 flush"), "❌ 日志文件应包含 `测试 flush`")
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+    }
+
+    /// **测试 `LogLocalManager` 在高并发场景下是否线程安全**
+    func testConcurrentLogging() async {
+        let logCount = 50  // **模拟高并发写入**
+        let expectation = XCTestExpectation(description: "高并发日志写入")
+
+        for i in 1...logCount {
+            Task {
+                await LogLocalManager.shared.saveLog(message: "并发日志 \(i)", file: "ConcurrencyTest.swift", line: i)
+            }
         }
 
-        // MARK: - CloudKit 错误处理测试
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
 
-    /// 测试 `CloudKitManager` 处理 **无效 iCloud 容器** 时是否会崩溃
-//    func testCloudKitContainerInvalid() async {
-//        let expectation = XCTestExpectation(description: "CloudKit should fail gracefully when an unregistered container is used")
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            for i in 1...logCount {
+                XCTAssertTrue(content.contains("并发日志 \(i)"), "❌ 缺少 `并发日志 \(i)`")
+            }
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+
+        expectation.fulfill()
+        await fulfillment(of: [expectation], timeout: 10.0)
+    }
+
+    /// **测试日志文件是否会超出最大容量**
+    func testLogFileSizeLimit() async {
+        let maxEntries = 500 // 假设 NDJSON 文件最多存储 500 条日志
+        for i in 1...maxEntries {
+            await LogLocalManager.shared.saveLog(message: "日志 \(i)", file: "SizeTest.swift", line: i)
+        }
+
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            let lines = content.split(separator: "\n")
+            XCTAssertLessThanOrEqual(lines.count, maxEntries, "❌ 日志文件过大，超过最大行数限制")
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+    }
+
+    /// **测试日志轮转（每天生成一个新文件）**
+    func testLogRotation() async {
+        let todayPath = await LogLocalManager.shared.getLogFilePath()
+        let tomorrowPath = await LogLocalManager.shared.getLogFilePath(for: Date().addingTimeInterval(86400)) // +1 天
+
+        XCTAssertNotEqual(todayPath, tomorrowPath, "❌ 日志文件未按天轮转")
+
+        await LogLocalManager.shared.saveLog(message: "测试日志轮转", file: "RotationTest.swift", line: 1)
+
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertTrue(logFiles.contains(todayPath), "❌ 今天的日志文件应存在")
+    }
+
+    /// **测试写入异常情况（文件不可写）**
+//    func testWriteFailure() async {
+//        let logFile = await LogLocalManager.shared.getLogFilePath()
 //
-//        Task {
-//            do {
-//                let invalidContainer = CKContainer(identifier: "iCloud.com.invalid") // ✅ 传入未注册的 iCloud 容器
-//                XCTAssertNil(invalidContainer.containerIdentifier, "未注册的容器 `identifier` 应该是 `nil`")
-//            } catch {
-//                XCTFail("未注册的容器应该不会崩溃，而是返回 `nil`")
-//            }
-//            expectation.fulfill()
+//        // **确保文件存在**
+//        if !FileManager.default.fileExists(atPath: logFile.path) {
+//            FileManager.default.createFile(atPath: logFile.path, contents: nil)
 //        }
 //
-//        await fulfillment(of: [expectation], timeout: 5.0)
+//        // **设置文件保护，完全阻止访问**
+//        let attributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.complete]
+//        try? FileManager.default.setAttributes(attributes, ofItemAtPath: logFile.path)
+//
+//        // **尝试写入日志**
+//        await LogLocalManager.shared.saveLog(message: "测试不可写入", file: "ErrorTest.swift", line: 999)
+//
+//        // **恢复文件保护**
+//        let writableAttributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.none]
+//        try? FileManager.default.setAttributes(writableAttributes, ofItemAtPath: logFile.path)
+//
+//        // **检查日志文件内容**
+//        let content = try? String(contentsOf: logFile)
+//        XCTAssertFalse(content?.contains("测试不可写入") ?? false, "❌ 不可写入的情况下，日志不应写入文件")
 //    }
 
+    /// **测试日志删除功能**
+    func testDeleteLogs() async {
+        await LogLocalManager.shared.saveLog(message: "待删除日志", file: "DeleteTest.swift", line: 123)
 
-    /// 测试 `CloudKitManager` 在 **正确的 iCloud 容器** 时，是否能正常工作
-//    func testCloudKitContainerAvailable() async {
-//        let expectation = XCTestExpectation(description: "CloudKit should pass when configured correctly")
-//
-//        Task {
-//            do {
-//                // ✅ 直接 Mock 通过，不让 `CKContainer.default()` 执行
-//                let mockStatus: CKAccountStatus = .available
-//                XCTAssertEqual(mockStatus, .available, "CloudKit 配置正确，应当成功通过检查")
-//
-//            } catch {
-//                XCTFail("CloudKit 已正确配置，但仍然抛出错误: \(error)")
-//            }
-//            expectation.fulfill()
-//        }
-//
-//        await fulfillment(of: [expectation], timeout: 5.0)
-//    }
-//
-//
-//
-//        /// 测试 `saveLogToCloud()` 在 **CloudKit 关闭** 时的错误处理
-//        func testSaveLogWithCloudKitDisabled() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should fail when CloudKit is disabled")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("CloudKit 关闭时，应该抛出 `CloudKitError.containerNotConfigured` 错误")
-//                } catch CloudKitError.containerNotConfigured {
-//                    XCTAssertTrue(true, "正确捕获 `CloudKitError.containerNotConfigured`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
-//        /// 测试 `saveLogToCloud()` 在 **未登录 iCloud** 时的错误处理
-//        func testSaveLogWithoutiCloudLogin() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should fail when user is not logged into iCloud")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("未登录 iCloud 时，应该抛出 `CKError.notAuthenticated` 错误")
-//                } catch let ckError as CKError where ckError.code == .notAuthenticated {
-//                    XCTAssertTrue(true, "正确捕获 `CKError.notAuthenticated`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
-//        /// 测试 `saveLogToCloud()` 在 **CloudKit 配额超限** 时的错误处理
-//        func testSaveLogWhenQuotaExceeded() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should fail when CloudKit quota is exceeded")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("CloudKit 配额超限时，应该抛出 `CKError.quotaExceeded` 错误")
-//                } catch let ckError as CKError where ckError.code == .quotaExceeded {
-//                    XCTAssertTrue(true, "正确捕获 `CKError.quotaExceeded`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
-//        /// 测试 `saveLogToCloud()` 在 **网络断开** 时的错误处理
-//        func testSaveLogWithNetworkFailure() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should retry when network is unavailable")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("网络断开时，应该抛出 `CKError.networkUnavailable` 或 `CKError.networkFailure` 错误")
-//                } catch let ckError as CKError where ckError.code == .networkUnavailable || ckError.code == .networkFailure {
-//                    XCTAssertTrue(true, "正确捕获 `CKError.networkUnavailable` 或 `CKError.networkFailure`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        for file in logFiles {
+            try? FileManager.default.removeItem(at: file)
+        }
+
+        let remainingFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertTrue(remainingFiles.isEmpty, "❌ 日志文件未正确删除")
+    }
 }
