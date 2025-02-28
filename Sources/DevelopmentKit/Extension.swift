@@ -9,10 +9,9 @@ import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
-#if os(iOS)
 import CryptoKit
 import CommonCrypto
-#endif
+//#endif
 
 // MARK: - 日期扩展
 
