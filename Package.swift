@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "DevelopmentKit",
     platforms: [
-        .iOS(.v16), .macOS(.v12) // 限制最低支持 iOS 16
+        .iOS(.v16), .macOS(.v13) // 限制最低支持 iOS 16
     ],
     products: [
         .library(
