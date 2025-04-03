@@ -422,7 +422,7 @@ public static func openMailApp() {
    - file: 调用该方法的文件路径，默认为 `#file`。
    - line: 调用该方法的代码行号，默认为 `#line`。
  */
-@MainActor
+
 public func Log<T>(_ message: T,
                    file: String = #file,
                    line: Int = #line) {

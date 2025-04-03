@@ -40,18 +40,22 @@ extension DevelopmentKit {
        - file: 调用该方法的文件路径，默认为 `#file`。
        - line: 调用该方法的代码行号，默认为 `#line`。
      */
-    @MainActor
+    
     public static func Log<T>(_ message: T,
                               file: String = #file,
                               line: Int = #line) {
         let fileName = (file as NSString).lastPathComponent
         let timeStamp = Self.logDateFormatter.string(from: Date())
         let logMessage = "[\(timeStamp)]<\(fileName):\(line)>: \(message)"
-        // `print` 输出到 console
         print(logMessage)
-        
-        Task {
-            @MainActor in await LogLocalManager.shared.saveLog(message: "\(message)", file: fileName, line: line)
+
+        // 在外部先转成字符串，避免在 Task 中直接使用泛型 T
+        let messageString = String(describing: message)
+
+        Task { @MainActor in
+            await LogLocalManager.shared.saveLog(message: messageString,
+                                                 file: fileName,
+                                                 line: line)
         }
     }
 

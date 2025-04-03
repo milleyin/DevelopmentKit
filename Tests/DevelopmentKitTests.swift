@@ -154,7 +154,7 @@ final class LogLocalManagerTests: XCTestCase {
 
     /// **测试 `Log()` 是否正确输出到 Xcode 控制台（仅检查不会崩溃）**
     func testLogFunction() async {
-        await Log("测试日志存储")  // ✅ 加上 `await`
+        Log("测试日志存储")  //
         
         // **等待日志写入**
         try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 秒，确保写入
