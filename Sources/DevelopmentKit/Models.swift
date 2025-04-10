@@ -46,3 +46,9 @@ public enum WiFiSignalLevel: String {
    case poor = "极差"
    case disconnected = "未连接"
 }
+
+/// 网络吞吐结构（单位：Bytes per second）
+public struct SystemNetworkThroughput {
+    public let receivedBytesPerSec: UInt64
+    public let sentBytesPerSec: UInt64
+}

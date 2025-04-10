@@ -105,6 +105,25 @@ final class DevelopmentKitTests: XCTestCase {
         
         wait(for: [expectation], timeout: 2.0)
     }
+    
+    //测试当前网速
+    func testSystemNetworkThroughput() {
+        let expectation = XCTestExpectation(description: "获取系统网络上下行流量")
+        
+        DevelopmentKit.getSystemNetworkThroughputPublisher(interval: 1.0)
+            .prefix(2) // 取两次：一次基准 + 一次实际变化
+            .sink { throughput in
+                print("⬇️ \(throughput.receivedBytesPerSec) B/s, ⬆️ \(throughput.sentBytesPerSec) B/s")
+                
+                // 至少结构应该有值（不一定非要大于 0）
+                XCTAssertGreaterThanOrEqual(throughput.receivedBytesPerSec, 0)
+                XCTAssertGreaterThanOrEqual(throughput.sentBytesPerSec, 0)
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 3.0)
+    }
     #endif
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
