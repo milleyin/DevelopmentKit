@@ -126,6 +126,50 @@ final class DevelopmentKitTests: XCTestCase {
     }
     #endif
     
+#if os(iOS)
+    func testGetBatteryLevelPublisher() {
+            let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
+            
+            // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
+            DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
+                .prefix(1)  // 只取第一个值
+                .sink(receiveCompletion: { completion in
+                    if case .failure(let error) = completion {
+                        XCTFail("电池电量获取失败：\(error)")
+                    }
+                }, receiveValue: { level in
+                    print("当前电池电量：\(level)%")
+                    XCTAssertGreaterThanOrEqual(level, 0)
+                    XCTAssertLessThanOrEqual(level, 100)
+                    expectation.fulfill()
+                })
+                .store(in: &subscriptions)
+            
+            wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
+        }
+#elseif os(macOS)
+    func testGetBatteryLevelPublisher() {
+            let expectation = XCTestExpectation(description: "获取 macOS 电池电量")
+            
+            // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
+            DevelopmentKit.getBatteryLevelPublisher()
+                .prefix(1)  // 只取第一个值
+                .sink(receiveCompletion: { completion in
+                    if case .failure(let error) = completion {
+                        XCTFail("电池电量获取失败：\(error)")
+                    }
+                }, receiveValue: { level in
+                    print("当前电池电量：\(level)%")
+                    XCTAssertGreaterThanOrEqual(level, 0)
+                    XCTAssertLessThanOrEqual(level, 100)
+                    expectation.fulfill()
+                })
+                .store(in: &subscriptions)
+            
+            wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
+        }
+#endif
+    
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
 #if os(iOS)

@@ -19,8 +19,18 @@ import UIKit
 #elseif os(macOS)
 import AppKit
 import CoreWLAN
+import IOKit
+import IOKit.ps
 import Darwin //NOTE: ifaddrs/if_data 等结构体来自 Darwin 系统库，无需 import，使用时只需 `import Darwin`
 #endif
+
+//public enum DevelopmentKit {
+//    
+//    public static let version: String = "0.0.5(2025038)"
+//
+//    /// 网络功能命名空间
+//    public enum Network {}
+//}
 
 public class DevelopmentKit {
     
@@ -34,6 +44,24 @@ public class DevelopmentKit {
     deinit {
         self.subscriptions.forEach { $0.cancel() }
     }
+    
+    /**
+         网络相关功能集合
+
+         - Important: 所有网络工具方法请挂载到此命名空间。
+         - Usage:
+         ```swift
+         DevelopmentKit.Network.getLocalIPAddress()
+         DevelopmentKit.Network.getNetworkTypePublisher()
+         ```
+         - Includes:
+            * 网络类型检测
+            * 信号强度获取
+            * 上下行速率监测
+            * 内网 IP 读取
+            * 后续扩展（如 DNS、Ping）
+         */
+    public enum Network {}
 }
 
 //MARK: - 网络类接口
@@ -498,6 +526,70 @@ extension DevelopmentKit {
     }
 #endif
 }
+
+//MARK: - 系统信息类
+
+extension DevelopmentKit {
+#if os(iOS)
+/// 持续监听 iOS 电池电量变化
+public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
+    // 确保设备支持电池监测
+    UIDevice.current.isBatteryMonitoringEnabled = true
+    
+    // 每隔 interval 秒获取一次电池电量
+    return Timer.publish(every: interval, on: .main, in: .common)
+        .autoconnect()  // 启动计时器
+        .map { _ in
+            Int(UIDevice.current.batteryLevel * 100)  // 返回百分比
+        }
+        .eraseToAnyPublisher()
+}
+#elseif os(macOS)
+    /// 获取 macOS 电池电量（百分比，0 到 100）
+        public static func getBatteryLevelPublisher() -> AnyPublisher<Int, Never> {
+            return Timer.publish(every: 1.0, on: .main, in: .common)
+                .autoconnect()
+                .map { _ in
+                    return getMacBatteryLevel()
+                }
+                .eraseToAnyPublisher()
+        }
+
+        /// 获取 macOS 电池电量（百分比，0 到 100）
+        private static func getMacBatteryLevel() -> Int {
+            var level = 0
+            _ = IOPSCopyPowerSourcesInfo()
+
+            // 获取电池信息快照
+            guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
+                return level  // 无法获取电池信息快照，返回 0
+            }
+
+            // 获取电池源列表
+            guard let sources: NSArray = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() else {
+                return level  // 无法获取电池源，返回 0
+            }
+
+            // 遍历每个电池源
+            for ps in sources {
+                // 获取每个电池源的信息
+                guard let info: NSDictionary = IOPSGetPowerSourceDescription(snapshot, ps as CFTypeRef)?.takeUnretainedValue() else {
+                    continue  // 如果获取电池信息失败，则跳过
+                }
+
+                // 从电池信息字典中提取容量和电量
+                if let capacity = info[kIOPSCurrentCapacityKey] as? Int,
+                   let maxCapacity = info[kIOPSMaxCapacityKey] as? Int {
+                    level = Int((Float(capacity) / Float(maxCapacity)) * 100)
+                    break  // 获取到电池信息后直接跳出循环
+                }
+            }
+            
+            return level
+        }
+#endif
+}
+
 
 // MARK: - 全局接口
 
