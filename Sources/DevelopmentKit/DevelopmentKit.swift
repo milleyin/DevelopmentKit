@@ -13,295 +13,136 @@ import SafariServices
 import CoreLocation
 import MapKit
 import Network
+import Combine
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
 import AppKit
+import CoreWLAN
 #endif
 
 public class DevelopmentKit {
     
     /// DevelopmentKit 版本号
-    public static let version: String = "0.0.3(2025023)"
+    public static let version: String = "0.0.5(2025038)"
     
-    // MARK: - 运行环境检测
-
-    /**
-     运行环境检测，判断当前代码是否在 SwiftUI 预览模式下执行。
-
-     - Important: 该属性主要用于在 SwiftUI 预览 (`Xcode Previews`) 中执行特定逻辑，
-       例如避免运行不兼容的代码或提供虚拟数据。
-     - Attention: 仅适用于 `Xcode` 预览模式，在真实设备或模拟器上运行时，该值始终为 `false`。
-     - Bug: 在某些情况下，环境变量可能无法正确传递，建议在 `DEBUG` 模式下手动检查是否正确。
-     - Warning: 不要依赖该属性进行关键业务逻辑的判断，该值仅适用于调试和 UI 预览环境。
-     - Requires: 需要 `ProcessInfo.processInfo.environment` 提供正确的 `XCODE_RUNNING_FOR_PREVIEWS` 变量。
-     - Remark: 适用于 SwiftUI `PreviewProvider`，在普通 `Simulator` 或 `Device` 运行时，该值不会生效。
-     - Note: 如果该值为 `true`，可用于返回模拟数据，避免真实网络请求或数据库操作。
-
-     示例：
-
-     ```swift
-     if isPreview {
-         print("当前处于 SwiftUI 预览模式")
-     }
-     ```
-
-     - Returns:
-       `true` 表示当前代码在 SwiftUI 预览模式 (`Xcode Previews`) 运行。
-       `false` 则表示在正常运行环境。
-     */
-    public static let isPreview: Bool = {
-        return ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
-    }()
-
+    private var subscriptions = Set<AnyCancellable>()
     
-    // MARK: - 打开系统邮件应用
-
-#if os(iOS)
-/**
- 在 iOS 设备上打开邮件应用。
-
- - Important: 该方法使用 `message://` URL 以尝试打开邮件应用。
- - Attention: 仅适用于 iOS 设备，macOS 不支持此方法。
- - Bug: 在部分设备或系统版本上，可能无法正确响应 `message://` URL。
- - Warning: 该方法依赖 `UIApplication.shared.open(url)`，必须在主线程调用，建议在 `@MainActor` 环境中执行。
- - Requires: 设备必须安装邮件应用，并支持 `UIApplication.shared.canOpenURL(url)`。
- - Returns: 无返回值。
- - Throws: 无异常抛出。
- - Note: 如果设备上未安装邮件应用，该方法不会有任何作用。
-
- ### 示例：
- ```swift
- openMailApp()
- ```
- */
-@MainActor
-public static func openMailApp() {
-    guard let url = URL(string: "message://"), UIApplication.shared.canOpenURL(url) else {
-        print("无法打开邮件应用")
-        return
+    init () { }
+    
+    deinit {
+        self.subscriptions.forEach { $0.cancel() }
     }
-    UIApplication.shared.open(url)
 }
-#endif
 
+//MARK: - 网络类接口
+
+extension DevelopmentKit {
+    
+    /**
+     获取当前网络连接类型（Combine 异步版）
+     
+     - Important: 使用 `NWPathMonitor` 检测网络状态，返回一次性 Publisher。
+     - Warning: 本方法不会持续监听，仅返回当前网络状态。
+     - Note: 超时时间默认为 0.5 秒，可调整。
+     - Parameter timeout: 超时时间（秒），默认 0.5 秒。
+     - Returns: `AnyPublisher<NetworkType, NetworkError>`
+     */
+    public static func getNetworkTypePublisher(timeout: TimeInterval = 0.5) -> AnyPublisher<NetworkType, NetworkError> {
+        let subject = PassthroughSubject<NetworkType, NetworkError>()
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue.global(qos: .background)
+        
+        let state = State()
+        
+        func resolve(_ type: NetworkType) {
+            state.resolveOnce {
+                subject.send(type)
+                subject.send(completion: .finished)
+                monitor.cancel()
+            }
+        }
+        
+        func fail(_ error: NetworkError) {
+            state.resolveOnce {
+                subject.send(completion: .failure(error))
+                monitor.cancel()
+            }
+        }
+        
+        monitor.pathUpdateHandler = { path in
+            if path.usesInterfaceType(.wifi) {
+                resolve(.wifi)
+            } else if path.usesInterfaceType(.cellular) {
+                resolve(.cellular)
+            } else if path.usesInterfaceType(.wiredEthernet) {
+                resolve(.wired)
+            } else if path.usesInterfaceType(.other) {
+                resolve(.other)
+            } else if path.status == .unsatisfied {
+                resolve(.none)
+            } else {
+                fail(.unableToDetermineNetworkType)
+            }
+        }
+        
+        monitor.start(queue: queue)
+        
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            fail(.timeout)
+        }
+        
+        return subject.eraseToAnyPublisher()
+    }
+    
 #if os(macOS)
-/**
- 在 macOS 设备上打开默认邮件客户端。
+    
+    /**
+         根据 RSSI 值转换为信号等级
 
- - Important: 该方法使用 `mailto:` URL 以尝试打开默认邮件客户端。
- - Attention: 仅适用于 macOS 设备，iOS 不支持此方法。
- - Bug: 在部分 macOS 版本上，可能无法正确解析 `mailto:` URL。
- - Warning: 该方法依赖 `NSWorkspace.shared.open(url)`，不会检查邮件客户端的可用性。
- - Requires: 设备必须安装邮件客户端，并支持 `NSWorkspace.shared.open(url)`。
- - Returns: 无返回值。
- - Throws: 无异常抛出。
- - Note: 如果设备上未安装邮件客户端，该方法不会有任何作用。
-
- ### 示例：
- ```swift
- openMailApp()
- ```
- */
-public static func openMailApp() {
-    guard let url = URL(string: "mailto:") else {
-        print("无法打开邮件应用")
-        return
+         - Parameter rssi: Wi-Fi RSSI（单位 dBm）
+         - Returns: 对应的 `WiFiSignalLevel`
+         */
+    private static func signalLevel(from rssi: Int?) -> WiFiSignalLevel {
+        guard let rssi = rssi else {
+            return .disconnected
+        }
+        
+        switch rssi {
+        case (-50)...0:
+            return .excellent
+        case (-65)...(-51):
+            return .good
+        case (-75)...(-66):
+            return .fair
+        case (-85)...(-76):
+            return .weak
+        default:
+            return .poor
+        }
     }
-    NSWorkspace.shared.open(url)
+
+    /**
+     获取当前 Wi-Fi 信号等级（每秒更新一次）
+     
+     - Returns: `AnyPublisher<WiFiSignalLevel, Never>`
+     */
+    public static func getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, Never> {
+        Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .map { _ in
+                let rssi = CWWiFiClient.shared().interface()?.rssiValue()
+                return signalLevel(from: rssi)
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+    #endif
 }
-#endif
 
+// MARK: - 通用接口
 
-//MARK: - 在系统设置内打开当前App设置
-    
-#if os(iOS)
-    /**
-     打开 iOS 设置内的当前 App 设置。
-
-     - Important: 该方法会尝试打开 `UIApplication.openSettingsURLString`，
-       以便用户直接跳转到本 App 在 iOS 设置中的界面。
-     - Attention: 仅适用于 iOS 设备，在 macOS 上不可用。
-     - Bug: 在某些情况下，系统可能不会正确响应 URL，建议用户手动检查。
-     - Warning: 该方法依赖 `UIApplication.shared.open`，
-       需要在主线程调用，建议在 `@MainActor` 环境中执行。
-     - Requires: 需要 `UIApplication.shared.canOpenURL(url)` 返回 `true` 才能成功打开。
-     - Note: 该方法适用于引导用户更改权限、通知或其他 App 相关设置。
-     
-     示例：
-     
-     ```swift
-     openAppSettings()
-     ```
-     */
-    @MainActor
-    public static func openAppSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString), UIApplication.shared.canOpenURL(url) else {
-            return
-        }
-        UIApplication.shared.open(url)
-    }
-#elseif os(macOS)
-    /**
-     打开 macOS 系统设置。
-
-     - Important: 该方法会尝试打开 `x-apple.systempreferences:`，
-       以便用户访问 macOS 系统的偏好设置。
-     - Attention: 仅适用于 macOS 设备，在 iOS 上不可用。
-     - Bug: 在某些情况下，URL 可能无法正确解析，建议用户手动检查。
-     - Warning: 该方法使用 `NSWorkspace.shared.open(url)`，
-       需要确保 `NSWorkspace` 具有适当的权限来访问系统设置。
-     - Requires: 需要 `NSWorkspace.shared.open(url)` 成功执行，才能正确打开设置。
-     - Note: 该方法适用于引导用户修改系统级别的设置，如网络、权限或显示选项。
-     
-     示例：
-     
-     ```swift
-     openAppSettings()
-     ```
-     */
-    public static func openAppSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:") else {
-            print("无法打开系统设置")
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
-#endif
-    
-    
-    //MARK: - App内打开网页链接
-
-#if os(iOS)
-    /**
-     打开网页链接。
-
-     - Important: 该方法会尝试打开指定的 URL。
-       在 iOS 16.0 及以上版本，会使用 `SFSafariViewController` 进行网页展示。
-     - Attention: 仅适用于 iOS 设备，macOS 不适用。
-     - Bug: 如果 `urlString` 无效或无法解析，则方法不会执行任何操作。
-     - Warning: 低于 iOS 16.0 的设备不支持 `SFSafariViewController`，
-       可能需要额外处理。
-     - Requires: 需要传入有效的 `urlString`，否则不会执行任何操作。
-     - Note: 该方法适用于在 App 内部打开网页，而不是跳转到外部 Safari 浏览器。
-
-     示例：
-
-     ```swift
-     openWebLink(urlString: "https://www.apple.com")
-     ```
-     */
-    @MainActor
-    public static func openWebLink(urlString: String) {
-        guard let url = URL(string: urlString) else {
-            print("无效的 URL")
-            return
-        }
-        
-        if #available(iOS 16.0, *) {
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let rootVC = windowScene.windows.first?.rootViewController else {
-                print("无法获取 Root View Controller")
-                return
-            }
-            let safariVC = SFSafariViewController(url: url)
-            rootVC.present(safariVC, animated: true)
-        } else {
-            print("iOS 版本过低，不支持打开 Safari")
-        }
-    }
-#elseif os(macOS)
-    public static func openWebLink(urlString: String) {
-        guard let url = URL(string: urlString) else {
-            print("无效的 URL")
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
-#endif
-    
-#if os(iOS)
-    /**
-     获取当前网络类型。
-
-     - Important: 该方法使用 `NWPathMonitor` 监测当前网络连接类型。
-     - Attention: 该方法在 `DispatchQueue.global(qos: .background)` 线程中执行，
-       并使用 `DispatchSemaphore` 进行同步等待。
-     - Bug: 由于 `NWPathMonitor` 的异步特性，可能会有一定的延迟。
-     - Warning: 该方法可能会影响主线程，建议避免在 UI 线程中直接调用。
-     - Requires: 需要 `Network` 框架支持，适用于 iOS 12 及以上系统。
-     - Note: 可能的返回值包括 `Wi-Fi`、`蜂窝移动网络`、`有线网络`、`其他网络` 和 `无网络连接`。
-
-     示例：
-
-     ```swift
-     let networkType = getNetworkType()
-     print("当前网络类型: \(networkType)")
-     ```
-     */
-    public static func getNetworkType() -> String {
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue.global(qos: .background)
-        var networkType = "未知"
-        
-        let semaphore = DispatchSemaphore(value: 0)
-        
-        monitor.pathUpdateHandler = { path in
-            DispatchQueue.main.async {
-                if path.usesInterfaceType(.wifi) {
-                    networkType = "Wi-Fi"
-                } else if path.usesInterfaceType(.cellular) {
-                    networkType = "蜂窝移动网络"
-                } else if path.usesInterfaceType(.wiredEthernet) {
-                    networkType = "有线网络"
-                } else if path.usesInterfaceType(.other) {
-                    networkType = "其他网络"
-                } else {
-                    networkType = "无网络连接"
-                }
-            }
-            monitor.cancel()
-            semaphore.signal()
-        }
-        monitor.start(queue: queue)
-        
-        _ = semaphore.wait(timeout: .now() + 0.5)
-        return networkType
-    }
-#elseif os(macOS)
-    
-    public static func getNetworkType() -> String {
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue.global(qos: .background)
-        var networkType = "未知"
-
-        let semaphore = DispatchSemaphore(value: 0)
-
-        monitor.pathUpdateHandler = { path in
-            DispatchQueue.main.async {
-                if path.usesInterfaceType(.wifi) {
-                    networkType = "Wi-Fi"
-                } else if path.usesInterfaceType(.wiredEthernet) {
-                    networkType = "有线网络"
-                } else if path.usesInterfaceType(.other) {
-                    networkType = "其他网络"
-                } else {
-                    networkType = "无网络连接"
-                }
-            }
-            monitor.cancel()
-            semaphore.signal()
-        }
-        monitor.start(queue: queue)
-
-        _ = semaphore.wait(timeout: .now() + 0.5)
-        return networkType
-    }
-    
-#endif
-    
-    // MARK: - 通用功能
-
+extension DevelopmentKit {
     /**
      复制文本到剪贴板。
 
@@ -388,10 +229,175 @@ public static func openMailApp() {
         return Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
     }
     
+    ///运行环境检测
+    public static let isPreview: Bool = {
+        return ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }()
 }
 
+//MARK: - 打开目的地接口
 
-// MARK: - 全局方法
+extension DevelopmentKit {
+    
+#if os(iOS)
+    /**
+     打开 iOS 设置内的当前 App 设置。
+     
+     - Important: 该方法会尝试打开 `UIApplication.openSettingsURLString`，
+     以便用户直接跳转到本 App 在 iOS 设置中的界面。
+     - Attention: 仅适用于 iOS 设备，在 macOS 上不可用。
+     - Bug: 在某些情况下，系统可能不会正确响应 URL，建议用户手动检查。
+     - Warning: 该方法依赖 `UIApplication.shared.open`，
+     需要在主线程调用，建议在 `@MainActor` 环境中执行。
+     - Requires: 需要 `UIApplication.shared.canOpenURL(url)` 返回 `true` 才能成功打开。
+     - Note: 该方法适用于引导用户更改权限、通知或其他 App 相关设置。
+     
+     示例：
+     
+     ```swift
+     openAppSettings()
+     ```
+     */
+    @MainActor
+    public static func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString), UIApplication.shared.canOpenURL(url) else {
+            return
+        }
+        UIApplication.shared.open(url)
+    }
+#elseif os(macOS)
+    /**
+     打开 macOS 系统设置。
+     
+     - Important: 该方法会尝试打开 `x-apple.systempreferences:`，
+     以便用户访问 macOS 系统的偏好设置。
+     - Attention: 仅适用于 macOS 设备，在 iOS 上不可用。
+     - Bug: 在某些情况下，URL 可能无法正确解析，建议用户手动检查。
+     - Warning: 该方法使用 `NSWorkspace.shared.open(url)`，
+     需要确保 `NSWorkspace` 具有适当的权限来访问系统设置。
+     - Requires: 需要 `NSWorkspace.shared.open(url)` 成功执行，才能正确打开设置。
+     - Note: 该方法适用于引导用户修改系统级别的设置，如网络、权限或显示选项。
+     
+     示例：
+     
+     ```swift
+     openAppSettings()
+     ```
+     */
+    public static func openAppSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:") else {
+            print("无法打开系统设置")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+#endif
+    
+#if os(iOS)
+    /**
+     打开网页链接。
+     
+     - Important: 该方法会尝试打开指定的 URL。
+     在 iOS 16.0 及以上版本，会使用 `SFSafariViewController` 进行网页展示。
+     - Attention: 仅适用于 iOS 设备，macOS 不适用。
+     - Bug: 如果 `urlString` 无效或无法解析，则方法不会执行任何操作。
+     - Warning: 低于 iOS 16.0 的设备不支持 `SFSafariViewController`，
+     可能需要额外处理。
+     - Requires: 需要传入有效的 `urlString`，否则不会执行任何操作。
+     - Note: 该方法适用于在 App 内部打开网页，而不是跳转到外部 Safari 浏览器。
+     
+     示例：
+     
+     ```swift
+     openWebLink(urlString: "https://www.apple.com")
+     ```
+     */
+    @MainActor
+    public static func openWebLink(urlString: String) {
+        guard let url = URL(string: urlString) else {
+            print("无效的 URL")
+            return
+        }
+        
+        if #available(iOS 16.0, *) {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootVC = windowScene.windows.first?.rootViewController else {
+                print("无法获取 Root View Controller")
+                return
+            }
+            let safariVC = SFSafariViewController(url: url)
+            rootVC.present(safariVC, animated: true)
+        } else {
+            print("iOS 版本过低，不支持打开 Safari")
+        }
+    }
+#elseif os(macOS)
+    public static func openWebLink(urlString: String) {
+        guard let url = URL(string: urlString) else {
+            print("无效的 URL")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+#endif
+    
+#if os(iOS)
+    /**
+     在 iOS 设备上打开邮件应用。
+     
+     - Important: 该方法使用 `message://` URL 以尝试打开邮件应用。
+     - Attention: 仅适用于 iOS 设备，macOS 不支持此方法。
+     - Bug: 在部分设备或系统版本上，可能无法正确响应 `message://` URL。
+     - Warning: 该方法依赖 `UIApplication.shared.open(url)`，必须在主线程调用，建议在 `@MainActor` 环境中执行。
+     - Requires: 设备必须安装邮件应用，并支持 `UIApplication.shared.canOpenURL(url)`。
+     - Returns: 无返回值。
+     - Throws: 无异常抛出。
+     - Note: 如果设备上未安装邮件应用，该方法不会有任何作用。
+     
+     ### 示例：
+     ```swift
+     openMailApp()
+     ```
+     */
+    @MainActor
+    public static func openMailApp() {
+        guard let url = URL(string: "message://"), UIApplication.shared.canOpenURL(url) else {
+            print("无法打开邮件应用")
+            return
+        }
+        UIApplication.shared.open(url)
+    }
+#endif
+    
+#if os(macOS)
+    /**
+     在 macOS 设备上打开默认邮件客户端。
+     
+     - Important: 该方法使用 `mailto:` URL 以尝试打开默认邮件客户端。
+     - Attention: 仅适用于 macOS 设备，iOS 不支持此方法。
+     - Bug: 在部分 macOS 版本上，可能无法正确解析 `mailto:` URL。
+     - Warning: 该方法依赖 `NSWorkspace.shared.open(url)`，不会检查邮件客户端的可用性。
+     - Requires: 设备必须安装邮件客户端，并支持 `NSWorkspace.shared.open(url)`。
+     - Returns: 无返回值。
+     - Throws: 无异常抛出。
+     - Note: 如果设备上未安装邮件客户端，该方法不会有任何作用。
+     
+     ### 示例：
+     ```swift
+     openMailApp()
+     ```
+     */
+    public static func openMailApp() {
+        guard let url = URL(string: "mailto:") else {
+            print("无法打开邮件应用")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+#endif
+}
+
+// MARK: - 全局接口
 
 /**
  记录日志信息。
@@ -429,5 +435,45 @@ public func Log<T>(_ message: T,
     DevelopmentKit.Log(message, file: file, line: line)
 }
 
+/**
+ 运行环境检测，判断当前代码是否在 SwiftUI 预览模式下执行。
+
+ - Important: 该属性主要用于在 SwiftUI 预览 (`Xcode Previews`) 中执行特定逻辑，
+   例如避免运行不兼容的代码或提供虚拟数据。
+ - Attention: 仅适用于 `Xcode` 预览模式，在真实设备或模拟器上运行时，该值始终为 `false`。
+ - Bug: 在某些情况下，环境变量可能无法正确传递，建议在 `DEBUG` 模式下手动检查是否正确。
+ - Warning: 不要依赖该属性进行关键业务逻辑的判断，该值仅适用于调试和 UI 预览环境。
+ - Requires: 需要 `ProcessInfo.processInfo.environment` 提供正确的 `XCODE_RUNNING_FOR_PREVIEWS` 变量。
+ - Remark: 适用于 SwiftUI `PreviewProvider`，在普通 `Simulator` 或 `Device` 运行时，该值不会生效。
+ - Note: 如果该值为 `true`，可用于返回模拟数据，避免真实网络请求或数据库操作。
+
+ 示例：
+
+ ```swift
+ if isPreview {
+     print("当前处于 SwiftUI 预览模式")
+ }
+ ```
+
+ - Returns:
+   `true` 表示当前代码在 SwiftUI 预览模式 (`Xcode Previews`) 运行。
+   `false` 则表示在正常运行环境。
+ */
+public func isPreview() -> Bool {
+    DevelopmentKit.isPreview
+}
 
 
+//MARK: - 内部扩展
+
+extension DevelopmentKit {
+    // 封装状态控制，避免并发访问 resolved
+    final private class State {
+        var resolved = false
+        func resolveOnce(_ block: () -> Void) {
+            guard !resolved else { return }
+            resolved = true
+            block()
+        }
+    }
+}

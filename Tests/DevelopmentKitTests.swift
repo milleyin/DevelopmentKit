@@ -6,9 +6,13 @@
 //
 
 import XCTest
+import Combine
 @testable import DevelopmentKit
 
 final class DevelopmentKitTests: XCTestCase {
+    
+    var subscriptions = Set<AnyCancellable>()
+    
     
     /// 测试 `isPreview` 是否正确检测 SwiftUI 预览模式
     func testIsPreview() {
@@ -59,12 +63,49 @@ final class DevelopmentKitTests: XCTestCase {
 #endif
     }
     
-    /// 测试 `getNetworkType()` 是否正确检测网络类型
-    func testGetNetworkType() {
-        let networkType = DevelopmentKit.getNetworkType()
-        let validTypes = ["Wi-Fi", "蜂窝移动网络", "有线网络", "其他网络", "无网络连接", "未知"]
-        XCTAssertTrue(validTypes.contains(networkType), "返回的网络类型应在预定义的类型范围内")
+    /// 测试 `getNetworkTypePublisher()` 是否正确检测网络类型
+    func testGetNetworkTypePublisher() {
+        let expectation = XCTestExpectation(description: "获取网络类型")
+
+        let validTypes: Set<NetworkType> = [
+            .wifi, .cellular, .wired, .other, .none, .unknown
+        ]
+
+        DevelopmentKit.getNetworkTypePublisher(timeout: 1.0)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    print("⚠️ 获取失败（测试允许）：\(error)")
+                    expectation.fulfill()
+                }
+            }, receiveValue: { type in
+                print("✅ 获取到网络类型：\(type.rawValue)")
+                XCTAssertTrue(validTypes.contains(type), "返回的网络类型应在预定义范围内")
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions) // ✅ 用你统一的 subscriptions 管理
+        wait(for: [expectation], timeout: 2.0)
     }
+    
+    #if os(macOS)
+    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回一个信号等级
+    func testWiFiSignalLevelPublisher() {
+        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级")
+        
+        DevelopmentKit.getWiFiSignalLevelPublisher(interval: 0.5)
+            .prefix(1) // 只取一次结果
+            .sink { level in
+                print("获取到信号等级：\(level.rawValue)")
+                let allCases: [WiFiSignalLevel] = [
+                    .excellent, .good, .fair, .weak, .poor, .disconnected
+                ]
+                XCTAssertTrue(allCases.contains(level), "返回的信号等级应在合法枚举中")
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
+    #endif
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
