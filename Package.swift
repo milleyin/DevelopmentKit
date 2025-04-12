@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "DevelopmentKit",
     platforms: [
-        .iOS(.v16) // 限制最低支持 iOS 16
+        .iOS(.v16), .macOS(.v13) // 限制最低支持 iOS 16
     ],
     products: [
         .library(

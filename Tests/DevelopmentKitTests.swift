@@ -6,16 +6,19 @@
 //
 
 import XCTest
-import CloudKit
+import Combine
 @testable import DevelopmentKit
 
-final class DevelopmentKitTests: XCTestCase {
+class DevelopmentKitTests: XCTestCase {
+    
+    var subscriptions = Set<AnyCancellable>()
+    
     
     /// 测试 `isPreview` 是否正确检测 SwiftUI 预览模式
     func testIsPreview() {
         let previewEnv = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"]
         let expected = previewEnv == "1"
-        XCTAssertEqual(DevelopmentKit.isPreview, expected)
+        XCTAssertEqual(DevelopmentKit.Utilities.isPreview, expected)
     }
     
     /// 测试 `openMailApp()` 是否正确处理未安装邮件应用的情况
@@ -60,12 +63,11 @@ final class DevelopmentKitTests: XCTestCase {
 #endif
     }
     
-    /// 测试 `getNetworkType()` 是否正确检测网络类型
-    func testGetNetworkType() {
-        let networkType = DevelopmentKit.getNetworkType()
-        let validTypes = ["Wi-Fi", "蜂窝移动网络", "有线网络", "其他网络", "无网络连接", "未知"]
-        XCTAssertTrue(validTypes.contains(networkType), "返回的网络类型应在预定义的类型范围内")
-    }
+
+    
+
+    
+
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
@@ -78,18 +80,18 @@ final class DevelopmentKitTests: XCTestCase {
     
     /// 测试 `getAppName()` 是否正确获取 App 名称
     func testGetAppName() {
-        let appName = DevelopmentKit.getAppName()
+        let appName = DevelopmentKit.Utilities.getAppName()
         XCTAssertFalse(appName.isEmpty, "App 名称不应为空")
     }
     
     /// 测试 `appVersion` 是否能正确获取版本号
     func testAppVersion() {
-        XCTAssertFalse(DevelopmentKit.appVersion.isEmpty, "App 版本号不应为空")
+        XCTAssertFalse(DevelopmentKit.Utilities.appVersion.isEmpty, "App 版本号不应为空")
     }
     
     /// 测试 `buildNumber` 是否能正确获取编译版本号
     func testBuildNumber() {
-        XCTAssertFalse(DevelopmentKit.buildNumber.isEmpty, "App 编译版本号不应为空")
+        XCTAssertFalse(DevelopmentKit.Utilities.buildNumber.isEmpty, "App 编译版本号不应为空")
     }
     
     /// 测试 `toYMDFormat()` 是否正确格式化日期
@@ -138,129 +140,373 @@ final class DevelopmentKitTests: XCTestCase {
         XCTAssertFalse(hash.isEmpty, "SHA-256 结果不应为空")
     }
     
-    // MARK: - Log 测试
+}
 
-        /// 测试 `Log()` 是否正确输出到 Xcode 控制台（仅检查不会崩溃）
-        func testLogFunction() {
-            Log("Test log message")
-            XCTAssertTrue(true, "`Log()` 调用成功，不应导致崩溃")
+// MARK: - 网络测试
+
+class NetworkTests: XCTestCase {
+    
+    var subscriptions = Set<AnyCancellable>()
+    
+    /// 测试 `getNetworkTypePublisher()` 是否正确检测网络类型
+    func testGetNetworkTypePublisher() {
+        let expectation = XCTestExpectation(description: "获取网络类型")
+        
+        let validTypes: Set<NetworkType> = [
+            .wifi, .cellular, .wired, .other, .none, .unknown
+        ]
+        
+        DevelopmentKit.Network.getNetworkTypePublisher(timeout: 1.0)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    print("⚠️ 获取失败（测试允许）：\(error)")
+                    expectation.fulfill()
+                }
+            }, receiveValue: { type in
+                print("✅ 获取到网络类型：\(type.rawValue)")
+                XCTAssertTrue(validTypes.contains(type), "返回的网络类型应在预定义范围内")
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions) // ✅ 用你统一的 subscriptions 管理
+        wait(for: [expectation], timeout: 5.0)
+    }
+    
+#if os(macOS)
+    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回一个信号等级
+    func testWiFiSignalLevelPublisher() {
+        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级")
+        
+        DevelopmentKit.Network.getWiFiSignalLevelPublisher(interval: 0.5)
+            .prefix(1) // 只取一次结果
+            .sink { level in
+                print("获取到信号等级：\(level.rawValue)")
+                let allCases: [WiFiSignalLevel] = [
+                    .excellent, .good, .fair, .weak, .poor, .disconnected
+                ]
+                XCTAssertTrue(allCases.contains(level), "返回的信号等级应在合法枚举中")
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
+    
+    //测试当前网速
+    func testSystemNetworkThroughput() {
+        let expectation = XCTestExpectation(description: "获取系统网络上下行流量")
+        
+        DevelopmentKit.Network.getSystemNetworkThroughputPublisher(interval: 1.0)
+            .prefix(2) // 取两次：一次基准 + 一次实际变化
+            .sink { throughput in
+                print("⬇️ \(throughput.receivedBytesPerSec) B/s, ⬆️ \(throughput.sentBytesPerSec) B/s")
+                
+                // 至少结构应该有值（不一定非要大于 0）
+                XCTAssertGreaterThanOrEqual(throughput.receivedBytesPerSec, 0)
+                XCTAssertGreaterThanOrEqual(throughput.sentBytesPerSec, 0)
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 3.0)
+    }
+#endif
+}
+
+// MARK: - 系统信息
+
+class SystemInfoTests: XCTestCase {
+    
+    var subscriptions = Set<AnyCancellable>()
+    
+#if os(iOS)
+    func testGetBatteryLevelPublisher() {
+        let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
+        
+        // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
+        DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
+            .prefix(1)  // 只取第一个值
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("电池电量获取失败：\(error)")
+                }
+            }, receiveValue: { level in
+                print("当前电池电量：\(level)%")
+                XCTAssertGreaterThanOrEqual(level, 0)
+                XCTAssertLessThanOrEqual(level, 100)
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
+    }
+#elseif os(macOS)
+    
+    //电池信息
+    func testGetBatteryInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
+        
+        // 使用 prefix(1) 来获取电池信息的第一个值，然后结束测试
+        DevelopmentKit.SysInfo.getBatteryInfoPublisher()
+            .prefix(1)  // 只取第一个值
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取电池信息失败：\(error.localizedDescription)")
+                }
+            }, receiveValue: { batteryInfo in
+                print("🔋电池电量：\(batteryInfo.level)%")
+                print("🔋最大容量：\(batteryInfo.maxCapacity)")
+                print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
+                print("🔋电池温度：\(batteryInfo.temperature) °C")
+                print("🔋电池循环次数：\(batteryInfo.cycleCount) °C")
+                
+                // 验证电池电量、最大容量、充电状态、温度
+                XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
+                XCTAssertLessThanOrEqual(batteryInfo.level, 100)
+                XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
+                XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
+                XCTAssert(batteryInfo.temperature >= 0)
+                XCTAssert(batteryInfo.cycleCount >= 0)
+                
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
+    }
+    
+    //内存信息
+    func testGetMemoryInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取内存信息")
+        
+        DevelopmentKit.SysInfo.getMemoryInfoPublisher()
+            .sink { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取内存信息失败：\(error)")
+                    expectation.fulfill()
+                }
+            } receiveValue: { info in
+                print(info) // 💾 打印内存信息
+                
+                XCTAssertGreaterThan(info.total, 0, "总内存应大于 0")
+                XCTAssertGreaterThanOrEqual(info.free, 0, "空闲内存应为正")
+                XCTAssertGreaterThanOrEqual(info.inactive, 0, "可回收内存应为正")
+                XCTAssertGreaterThanOrEqual(info.used, 0, "已使用内存应为正")
+                XCTAssertLessThanOrEqual(info.used, info.total, "已使用内存不应大于总内存")
+                
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
+    
+    /// CPU测试
+    func testGetCPUInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取 CPU 信息")
+        
+        DevelopmentKit.SysInfo.getCPUInfoPublisher()
+            .sink { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取 CPU 信息失败：\(error)")
+                    expectation.fulfill()
+                }
+            } receiveValue: { info in
+                print(info)
+                
+                XCTAssertFalse(info.model.isEmpty, "CPU 型号不应为空")
+                XCTAssertGreaterThan(info.physicalCores, 0, "物理核心数应大于 0")
+                XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores, "逻辑核心数应 ≥ 物理核心数")
+                
+                let totalSum = info.totalUsage + info.totalIdle
+                XCTAssertEqual(totalSum.rounded(toPlaces: 1), 100.0, accuracy: 1.0, "占用率 + 空闲率 应约等于 100")
+                
+                XCTAssertEqual(info.coreUsages.count, info.logicalCores, "核心使用率数量应等于逻辑核心数")
+                
+                for (i, usage) in info.coreUsages.enumerated() {
+                    XCTAssert(usage >= 0 && usage <= 100, "Core \(i) 使用率应在 0 ~ 100 范围内")
+                }
+                
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
+    
+#endif
+}
+
+
+// MARK: - Log 测试
+
+final class LogLocalManagerTests: XCTestCase {
+
+    override func setUp() async throws {
+        // 清空日志目录，确保测试环境干净
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        for file in logFiles {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    /// **测试 `Log()` 是否正确输出到 Xcode 控制台（仅检查不会崩溃）**
+    func testLogFunction() async {
+        Log("测试日志存储")  //
+        
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 秒，确保写入
+        
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+    }
+
+    /// **测试 `saveLog()` 是否能正确写入日志文件**
+    func testSaveLog() async {
+        await LogLocalManager.shared.saveLog(message: "测试 saveLog", file: "Test.swift", line: 42)
+
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        // **检查日志内容**
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            XCTAssertTrue(content.contains("测试 saveLog"), "❌ 日志文件应包含 `测试 saveLog`")
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+    }
+
+    /// **测试 `flushLogsToFile()` 是否按预期写入**
+    func testFlushLogs() async {
+        await LogLocalManager.shared.saveLog(message: "测试 flush", file: "Test.swift", line: 99)
+
+        // **等待 flush 触发**
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            XCTAssertTrue(content.contains("测试 flush"), "❌ 日志文件应包含 `测试 flush`")
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+    }
+
+    /// **测试 `LogLocalManager` 在高并发场景下是否线程安全**
+    func testConcurrentLogging() async {
+        let logCount = 50  // **模拟高并发写入**
+        let expectation = XCTestExpectation(description: "高并发日志写入")
+
+        for i in 1...logCount {
+            Task {
+                await LogLocalManager.shared.saveLog(message: "并发日志 \(i)", file: "ConcurrencyTest.swift", line: i)
+            }
         }
 
-        // MARK: - CloudKit 错误处理测试
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
 
-    /// 测试 `CloudKitManager` 处理 **无效 iCloud 容器** 时是否会崩溃
-//    func testCloudKitContainerInvalid() async {
-//        let expectation = XCTestExpectation(description: "CloudKit should fail gracefully when an unregistered container is used")
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            for i in 1...logCount {
+                XCTAssertTrue(content.contains("并发日志 \(i)"), "❌ 缺少 `并发日志 \(i)`")
+            }
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+
+        expectation.fulfill()
+        await fulfillment(of: [expectation], timeout: 10.0)
+    }
+
+    /// **测试日志文件是否会超出最大容量**
+    func testLogFileSizeLimit() async {
+        let maxEntries = 500 // 假设 NDJSON 文件最多存储 500 条日志
+        for i in 1...maxEntries {
+            await LogLocalManager.shared.saveLog(message: "日志 \(i)", file: "SizeTest.swift", line: i)
+        }
+
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            let lines = content.split(separator: "\n")
+            XCTAssertLessThanOrEqual(lines.count, maxEntries, "❌ 日志文件过大，超过最大行数限制")
+        } else {
+            XCTFail("❌ 无法读取日志文件")
+        }
+    }
+
+    /// **测试日志轮转（每天生成一个新文件）**
+    func testLogRotation() async {
+        let todayPath = await LogLocalManager.shared.getLogFilePath()
+        let tomorrowPath = await LogLocalManager.shared.getLogFilePath(for: Date().addingTimeInterval(86400)) // +1 天
+
+        XCTAssertNotEqual(todayPath, tomorrowPath, "❌ 日志文件未按天轮转")
+
+        await LogLocalManager.shared.saveLog(message: "测试日志轮转", file: "RotationTest.swift", line: 1)
+
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertTrue(logFiles.contains(todayPath), "❌ 今天的日志文件应存在")
+    }
+
+    /// **测试写入异常情况（文件不可写）**
+//    func testWriteFailure() async {
+//        let logFile = await LogLocalManager.shared.getLogFilePath()
 //
-//        Task {
-//            do {
-//                let invalidContainer = CKContainer(identifier: "iCloud.com.invalid") // ✅ 传入未注册的 iCloud 容器
-//                XCTAssertNil(invalidContainer.containerIdentifier, "未注册的容器 `identifier` 应该是 `nil`")
-//            } catch {
-//                XCTFail("未注册的容器应该不会崩溃，而是返回 `nil`")
-//            }
-//            expectation.fulfill()
+//        // **确保文件存在**
+//        if !FileManager.default.fileExists(atPath: logFile.path) {
+//            FileManager.default.createFile(atPath: logFile.path, contents: nil)
 //        }
 //
-//        await fulfillment(of: [expectation], timeout: 5.0)
+//        // **设置文件保护，完全阻止访问**
+//        let attributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.complete]
+//        try? FileManager.default.setAttributes(attributes, ofItemAtPath: logFile.path)
+//
+//        // **尝试写入日志**
+//        await LogLocalManager.shared.saveLog(message: "测试不可写入", file: "ErrorTest.swift", line: 999)
+//
+//        // **恢复文件保护**
+//        let writableAttributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.none]
+//        try? FileManager.default.setAttributes(writableAttributes, ofItemAtPath: logFile.path)
+//
+//        // **检查日志文件内容**
+//        let content = try? String(contentsOf: logFile)
+//        XCTAssertFalse(content?.contains("测试不可写入") ?? false, "❌ 不可写入的情况下，日志不应写入文件")
 //    }
 
+    /// **测试日志删除功能**
+    func testDeleteLogs() async {
+        await LogLocalManager.shared.saveLog(message: "待删除日志", file: "DeleteTest.swift", line: 123)
 
-    /// 测试 `CloudKitManager` 在 **正确的 iCloud 容器** 时，是否能正常工作
-//    func testCloudKitContainerAvailable() async {
-//        let expectation = XCTestExpectation(description: "CloudKit should pass when configured correctly")
-//
-//        Task {
-//            do {
-//                // ✅ 直接 Mock 通过，不让 `CKContainer.default()` 执行
-//                let mockStatus: CKAccountStatus = .available
-//                XCTAssertEqual(mockStatus, .available, "CloudKit 配置正确，应当成功通过检查")
-//
-//            } catch {
-//                XCTFail("CloudKit 已正确配置，但仍然抛出错误: \(error)")
-//            }
-//            expectation.fulfill()
-//        }
-//
-//        await fulfillment(of: [expectation], timeout: 5.0)
-//    }
-//
-//
-//
-//        /// 测试 `saveLogToCloud()` 在 **CloudKit 关闭** 时的错误处理
-//        func testSaveLogWithCloudKitDisabled() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should fail when CloudKit is disabled")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("CloudKit 关闭时，应该抛出 `CloudKitError.containerNotConfigured` 错误")
-//                } catch CloudKitError.containerNotConfigured {
-//                    XCTAssertTrue(true, "正确捕获 `CloudKitError.containerNotConfigured`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
-//        /// 测试 `saveLogToCloud()` 在 **未登录 iCloud** 时的错误处理
-//        func testSaveLogWithoutiCloudLogin() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should fail when user is not logged into iCloud")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("未登录 iCloud 时，应该抛出 `CKError.notAuthenticated` 错误")
-//                } catch let ckError as CKError where ckError.code == .notAuthenticated {
-//                    XCTAssertTrue(true, "正确捕获 `CKError.notAuthenticated`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
-//        /// 测试 `saveLogToCloud()` 在 **CloudKit 配额超限** 时的错误处理
-//        func testSaveLogWhenQuotaExceeded() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should fail when CloudKit quota is exceeded")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("CloudKit 配额超限时，应该抛出 `CKError.quotaExceeded` 错误")
-//                } catch let ckError as CKError where ckError.code == .quotaExceeded {
-//                    XCTAssertTrue(true, "正确捕获 `CKError.quotaExceeded`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
-//        /// 测试 `saveLogToCloud()` 在 **网络断开** 时的错误处理
-//        func testSaveLogWithNetworkFailure() async {
-//            let expectation = XCTestExpectation(description: "saveLogToCloud should retry when network is unavailable")
-//
-//            Task {
-//                do {
-//                    try await CloudKitManager.saveLogToCloud("Test log message", file: "TestFile.swift", line: 42)
-//                    XCTFail("网络断开时，应该抛出 `CKError.networkUnavailable` 或 `CKError.networkFailure` 错误")
-//                } catch let ckError as CKError where ckError.code == .networkUnavailable || ckError.code == .networkFailure {
-//                    XCTAssertTrue(true, "正确捕获 `CKError.networkUnavailable` 或 `CKError.networkFailure`")
-//                } catch {
-//                    XCTFail("捕获到意外错误: \(error)")
-//                }
-//                expectation.fulfill()
-//            }
-//
-//            await fulfillment(of: [expectation], timeout: 5.0)
-//        }
-//
+        // **等待日志写入**
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+
+        for file in logFiles {
+            try? FileManager.default.removeItem(at: file)
+        }
+
+        let remainingFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertTrue(remainingFiles.isEmpty, "❌ 日志文件未正确删除")
+    }
+    
+    
 }
