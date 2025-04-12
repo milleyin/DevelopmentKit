@@ -286,8 +286,9 @@ extension DevelopmentKit.SysInfo {
     /**
      获取当前 macOS 系统的 CPU 信息，包括型号、核心数、总体使用率及每个核心使用率。
      
-     - Important: 本方法为一次性异步采样，使用 Combine 的 `Future` 实现，不会持续监测。
-     如需实现定时采样，请在上层使用 `Timer.publish(...).autoconnect()` 搭配调用本方法。
+     - Important: 本方法支持一次性采样与定时采样两种模式，调用方可通过 `interval` 参数控制行为：
+     - 若 `interval == 0`，将仅采样一次；
+     - 若 `interval > 0`，则每隔指定时间推送一次更新（Combine 定时流）。
      
      - Note: 使用率的计算基于 `host_processor_info()` 返回的数据，结果单位为百分比（%）。
      每个核心的使用率包含用户态、系统态及 nice 态之和，不区分线程类型。
@@ -310,69 +311,125 @@ extension DevelopmentKit.SysInfo {
      ```
      */
     public static func getCPUInfoPublisher(interval: TimeInterval) -> AnyPublisher<MacCPUInfo, Error> {
+        struct Snapshot {
+            let coreCount: Int
+            let values: [Double]
+        }
+
+        func readCPUTicks() -> Snapshot? {
+            var cpuCount: natural_t = 0
+            var cpuInfo: processor_info_array_t?
+            var numCPUInfo: mach_msg_type_number_t = 0
+
+            let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
+            guard result == KERN_SUCCESS, let info = cpuInfo else { return nil }
+
+            var values: [Double] = []
+            for i in 0..<Int(cpuCount) {
+                let base = Int(CPU_STATE_MAX) * i
+                for j in 0..<Int(CPU_STATE_MAX) {
+                    values.append(Double(info[base + j]))
+                }
+            }
+
+            return Snapshot(coreCount: Int(cpuCount), values: values)
+        }
+
+        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double]) {
+            var totalUsed: Double = 0
+            var totalAll: Double = 0
+            var coreUsages: [Double] = []
+
+            for i in 0..<prev.coreCount {
+                let base = i * Int(CPU_STATE_MAX)
+                let userDiff = current.values[base + Int(CPU_STATE_USER)] - prev.values[base + Int(CPU_STATE_USER)]
+                let systemDiff = current.values[base + Int(CPU_STATE_SYSTEM)] - prev.values[base + Int(CPU_STATE_SYSTEM)]
+                let idleDiff = current.values[base + Int(CPU_STATE_IDLE)] - prev.values[base + Int(CPU_STATE_IDLE)]
+                let niceDiff = current.values[base + Int(CPU_STATE_NICE)] - prev.values[base + Int(CPU_STATE_NICE)]
+
+                let used = userDiff + systemDiff + niceDiff
+                let total = used + idleDiff
+
+                coreUsages.append((used / total) * 100)
+                totalUsed += used
+                totalAll += total
+            }
+
+            return ((totalUsed / totalAll) * 100, coreUsages)
+        }
+
+        func readStaticInfo() -> (model: String, physical: Int, logical: Int) {
+            var modelBuffer = [CChar](repeating: 0, count: 256)
+            var size = modelBuffer.count
+            sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
+            let model = String(cString: modelBuffer)
+
+            var physicalCores: Int32 = 0
+            var logicalCores: Int32 = 0
+            size = MemoryLayout.size(ofValue: physicalCores)
+            sysctlbyname("hw.physicalcpu", &physicalCores, &size, nil, 0)
+            sysctlbyname("hw.logicalcpu", &logicalCores, &size, nil, 0)
+
+            return (model, Int(physicalCores), Int(logicalCores))
+        }
+
         if interval <= 0 {
             return Future<MacCPUInfo, Error> { promise in
-                var modelBuffer = [CChar](repeating: 0, count: 256)
-                var size = modelBuffer.count
-                sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
-                let model = String(cString: modelBuffer)
-
-                var physicalCores: Int32 = 0
-                var logicalCores: Int32 = 0
-                size = MemoryLayout.size(ofValue: physicalCores)
-                sysctlbyname("hw.physicalcpu", &physicalCores, &size, nil, 0)
-                sysctlbyname("hw.logicalcpu", &logicalCores, &size, nil, 0)
-
-                var cpuCount: natural_t = 0
-                var cpuInfo: processor_info_array_t?
-                var numCPUInfo: mach_msg_type_number_t = 0
-                let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
-
-                guard result == KERN_SUCCESS, let info = cpuInfo else {
-                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 使用率"])))
+                let (model, physical, logical) = readStaticInfo()
+                guard let snapshot = readCPUTicks() else {
+                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 状态"])))
                     return
                 }
 
                 var coreUsages: [Double] = []
-                var totalUsed: Double = 0
-                var totalIdle: Double = 0
+                for i in 0..<snapshot.coreCount {
+                    let base = i * Int(CPU_STATE_MAX)
+                    let user = snapshot.values[base + Int(CPU_STATE_USER)]
+                    let system = snapshot.values[base + Int(CPU_STATE_SYSTEM)]
+                    let idle = snapshot.values[base + Int(CPU_STATE_IDLE)]
+                    let nice = snapshot.values[base + Int(CPU_STATE_NICE)]
 
-                for i in 0..<Int(cpuCount) {
-                    let stateCount = Int(CPU_STATE_MAX)
-                    let base = stateCount * i
-                    let user = Double(info[base + Int(CPU_STATE_USER)])
-                    let system = Double(info[base + Int(CPU_STATE_SYSTEM)])
-                    let idle = Double(info[base + Int(CPU_STATE_IDLE)])
-                    let nice = Double(info[base + Int(CPU_STATE_NICE)])
-
-                    let total = user + system + idle + nice
                     let used = user + system + nice
-                    let usagePercent = (used / total) * 100
-
-                    coreUsages.append(usagePercent)
-                    totalUsed += used
-                    totalIdle += idle
+                    let total = used + idle
+                    let percent = (used / total) * 100
+                    coreUsages.append(percent)
                 }
 
-                let totalAll = totalUsed + totalIdle
-                let infoStruct = MacCPUInfo(
-                    model: model,
-                    physicalCores: Int(physicalCores),
-                    logicalCores: Int(logicalCores),
-                    totalUsage: (totalUsed / totalAll) * 100,
-                    totalIdle: (totalIdle / totalAll) * 100,
-                    coreUsages: coreUsages
-                )
+                let totalUsage = coreUsages.reduce(0, +) / Double(snapshot.coreCount)
+                let totalIdle = 100.0 - totalUsage
 
-                promise(.success(infoStruct))
+                promise(.success(MacCPUInfo(
+                    model: model,
+                    physicalCores: physical,
+                    logicalCores: logical,
+                    totalUsage: totalUsage,
+                    totalIdle: totalIdle,
+                    coreUsages: coreUsages
+                )))
             }
             .eraseToAnyPublisher()
         } else {
+            let (model, physical, logical) = readStaticInfo()
+            var previous: Snapshot? = nil
+
             return Timer.publish(every: interval, on: .main, in: .common)
                 .autoconnect()
-                .flatMap { _ in
-                    getCPUInfoPublisher(interval: 0)
+                .compactMap { _ in
+                    guard let current = readCPUTicks() else { return nil }
+                    defer { previous = current }
+                    guard let prev = previous else { return nil }
+                    let (total, perCore) = calculateUsage(prev: prev, current: current)
+
+                    return MacCPUInfo(
+                        model: model,
+                        physicalCores: physical,
+                        logicalCores: logical,
+                        totalUsage: total,
+                        totalIdle: 100 - total,
+                        coreUsages: perCore
+                    )
                 }
+                .setFailureType(to: Error.self)
                 .eraseToAnyPublisher()
         }
     }
