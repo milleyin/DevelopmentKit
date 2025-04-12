@@ -213,8 +213,10 @@ extension DevelopmentKit.SysInfo {
     /**
      获取当前 macOS 系统的内存使用信息，包括总内存、空闲内存、已使用内存与可回收内存（Inactive Memory）。
      
-     - Important: 本方法为一次性异步采样，使用 Combine 的 `Future` 实现，非持续监测。
-     数据单位为 **GB（四舍五入至小数点后两位）**，方便用于 UI 显示或存储记录。
+     - Important:
+     - interval == 0 时，一次性返回当前内存信息，非持续监测。
+     - interval > 0 时，定时通过 Timer.publish 推送内存状态；
+     - 数据单位为 **GB（四舍五入至小数点后两位）**，方便用于 UI 显示或存储记录。
      
      - Note:
      - 本方法通过 `host_statistics64()` 获取内存页数据，并结合 `sysctl` 获取总内存大小。
@@ -237,9 +239,9 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getMemoryInfoPublisher() -> AnyPublisher<MacMemoryInfo, Swift.Error> {
-        let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
-        return Future<MacMemoryInfo, Swift.Error> { promise in
+    public static func getMemoryInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacMemoryInfo, Swift.Error> {
+        func readMemoryInfo() -> MacMemoryInfo? {
+            let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
             var stats = vm_statistics64()
             var count = mach_msg_type_number_t(HOST_VM_INFO64_COUNT)
             let result = withUnsafeMutablePointer(to: &stats) {
@@ -248,10 +250,7 @@ extension DevelopmentKit.SysInfo {
                 }
             }
             
-            if result != KERN_SUCCESS {
-                promise(.failure(NSError(domain: "MemoryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取内存信息"])))
-                return
-            }
+            guard result == KERN_SUCCESS else { return nil }
             
             // 获取总内存
             var totalMemory: UInt64 = 0
@@ -268,16 +267,32 @@ extension DevelopmentKit.SysInfo {
                 return (bytes / 1_073_741_824).rounded(toPlaces: 2)
             }
             
-            let info = MacMemoryInfo(
+            return MacMemoryInfo(
                 total: toGB(total),
                 free: toGB(free),
                 used: toGB(used),
                 inactive: toGB(inactive)
             )
-            
-            promise(.success(info))
         }
-        .eraseToAnyPublisher()
+        
+        if interval <= 0 {
+            return Future<MacMemoryInfo, Swift.Error> { promise in
+                if let info = readMemoryInfo() {
+                    promise(.success(info))
+                } else {
+                    promise(.failure(NSError(domain: "MemoryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取内存信息"])))
+                }
+            }
+            .eraseToAnyPublisher()
+        } else {
+            return Timer.publish(every: interval, on: .main, in: .common)
+                .autoconnect()
+                .compactMap { _ in
+                    readMemoryInfo()
+                }
+                .setFailureType(to: Swift.Error.self)
+                .eraseToAnyPublisher()
+        }
     }
 }
 
