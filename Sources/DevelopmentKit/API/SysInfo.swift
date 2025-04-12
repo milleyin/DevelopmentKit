@@ -287,8 +287,8 @@ extension DevelopmentKit.SysInfo {
      获取当前 macOS 系统的 CPU 信息，包括型号、核心数、总体使用率及每个核心使用率。
      
      - Important: 本方法支持一次性采样与定时采样两种模式，调用方可通过 `interval` 参数控制行为：
-     - 若 `interval == 0`，将仅采样一次；
-     - 若 `interval > 0`，则每隔指定时间推送一次更新（Combine 定时流）。
+     - 若 `interval == 0`，将仅采样一次（结果为历史累计快照，非实时占用率）；
+     - 若 `interval > 0`，则每隔指定时间推送一次“当前 CPU 活动占用率”（基于差值计算）。
      
      - Note: 使用率的计算基于 `host_processor_info()` 返回的数据，结果单位为百分比（%）。
      每个核心的使用率包含用户态、系统态及 nice 态之和，不区分线程类型。
@@ -310,7 +310,7 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getCPUInfoPublisher(interval: TimeInterval) -> AnyPublisher<MacCPUInfo, Error> {
+    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, Error> {
         struct Snapshot {
             let coreCount: Int
             let values: [Double]
