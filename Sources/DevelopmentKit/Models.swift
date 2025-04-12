@@ -63,4 +63,69 @@ public struct MacBatteryInfo {
     var isCharging: Bool
     /// 电池温度 (单位：摄氏度)
     var temperature: Double
+    /// 循环次数
+    public var cycleCount: Int
+    
+    public init(level: Int = 0, maxCapacity: Int = 0, isCharging: Bool = false, temperature: Double = -1, cycleCount: Int = 0) {
+        self.level = level
+        self.maxCapacity = maxCapacity
+        self.isCharging = isCharging
+        self.temperature = temperature
+        self.cycleCount = cycleCount
+    }
+}
+///内存结构
+public struct MacMemoryInfo: CustomStringConvertible {
+    public let total: Double
+    public let free: Double
+    public let used: Double
+    public let inactive: Double
+
+    public init(total: Double, free: Double, used: Double, inactive: Double) {
+        self.total = total
+        self.free = free
+        self.used = used
+        self.inactive = inactive
+    }
+
+    /// 打印友好的文字描述
+    public var description: String {
+        """
+        💾 内存状态：
+        - 总内存：\(total) GB
+        - 空闲内存：\(free) GB
+        - 已使用内存：\(used) GB
+        - 可回收内存（Inactive）：\(inactive) GB
+        """
+    }
+}
+///cpu数据结构
+public struct MacCPUInfo {
+    /// 型号 / 名称
+    public let model: String
+    /// 物理核心数
+    public let physicalCores: Int
+    /// 逻辑核心数（包含超线程）
+    public let logicalCores: Int
+    /// 总体占用率（单位：%）
+    public let totalUsage: Double
+    /// 总体空闲率（单位：%）
+    public let totalIdle: Double
+    /// 每个核心使用率 [%]，顺序与 core index 一致
+    public let coreUsages: [Double]
+    
+    public var description: String {
+        let coreList = coreUsages.enumerated()
+            .map { "  - Core \($0.offset): \($0.element.rounded(toPlaces: 2))%" }
+            .joined(separator: "\n")
+        return """
+            🧠 CPU 型号：\(model)
+            🔩 物理核心数：\(physicalCores)
+            🔢 逻辑核心数：\(logicalCores)
+            ⚙️ 总体占用：\(totalUsage.rounded(toPlaces: 2))%
+            💤 总体空闲：\(totalIdle.rounded(toPlaces: 2))%
+            💡 每核心占用：
+            \(coreList)
+            """
+    }
 }
