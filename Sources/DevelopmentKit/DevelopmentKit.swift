@@ -545,48 +545,157 @@ public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> Any
         .eraseToAnyPublisher()
 }
 #elseif os(macOS)
-    /// 获取 macOS 电池电量（百分比，0 到 100）
-        public static func getBatteryLevelPublisher() -> AnyPublisher<Int, Never> {
-            return Timer.publish(every: 1.0, on: .main, in: .common)
-                .autoconnect()
-                .map { _ in
-                    return getMacBatteryLevel()
+//    /// 获取 macOS 电池信息（电量、最大容量、充电状态）
+//        public static func getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, Swift.Error> {
+//            return Timer.publish(every: 1.0, on: .main, in: .common)
+//                .autoconnect()
+//                .tryMap { _ in
+//                    return try getMacBatteryInfo()  // 使用 try 处理抛出错误
+//                }
+//                .eraseToAnyPublisher()
+//        }
+//
+//        /// 获取 macOS 电池信息（电量、最大容量、充电状态）
+//        private static func getMacBatteryInfo() throws -> MacBatteryInfo {
+//            var batteryInfo = MacBatteryInfo(level: 0, maxCapacity: 0, isCharging: false)
+//            
+//            _ = IOPSCopyPowerSourcesInfo()
+//            
+//            guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
+//                throw NSError(domain: "BatteryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取电池信息快照"])
+//            }
+//            
+//            guard let sources: NSArray = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() else {
+//                throw NSError(domain: "BatteryError", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取电池源"])
+//            }
+//
+//            // 遍历每个电池源
+//            for ps in sources {
+//                guard let info: NSDictionary = IOPSGetPowerSourceDescription(snapshot, ps as CFTypeRef)?.takeUnretainedValue() else {
+//                    continue  // 如果获取电池信息失败，则跳过
+//                }
+//                
+//                // 获取电池最大容量、电量、充电状态
+//                if let capacity = info[kIOPSMaxCapacityKey] as? Int,
+//                   let currentCapacity = info[kIOPSCurrentCapacityKey] as? Int {
+//                    batteryInfo.maxCapacity = capacity
+//                    batteryInfo.level = Int((Float(currentCapacity) / Float(capacity)) * 100)
+//                }
+//
+//                // 获取充电状态
+//                if let powerState = info[kIOPSPowerSourceStateKey] as? String {
+//                    batteryInfo.isCharging = (powerState == kIOPSACPowerValue)
+//                }
+//                
+//                break  // 获取到电池信息后直接跳出循环
+//            }
+//            
+//            return batteryInfo
+//        }
+    
+    /// 获取 macOS 电池信息（电量、最大容量、充电状态、温度）
+        public static func getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, Swift.Error> {
+            return Future { promise in
+                var service: io_service_t = 0
+
+                // 打开电池服务
+                let openResult = openBatteryService(&service)
+                if openResult != kIOReturnSuccess {
+                    promise(.failure(NSError(domain: "BatteryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法打开电池服务"])))
+                    return
                 }
-                .eraseToAnyPublisher()
+                
+                // 获取电池信息
+                let batteryInfo = getMacBatteryInfo()
+                if batteryInfo.temperature == -1 {
+                    promise(.failure(NSError(domain: "BatteryError", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取电池温度"])))
+                } else {
+                    promise(.success(batteryInfo))
+                }
+                
+                // 关闭电池服务
+                closeBatteryService(service)
+            }
+            .eraseToAnyPublisher()
         }
 
-        /// 获取 macOS 电池电量（百分比，0 到 100）
-        private static func getMacBatteryLevel() -> Int {
-            var level = 0
-            _ = IOPSCopyPowerSourcesInfo()
-
-            // 获取电池信息快照
-            guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
-                return level  // 无法获取电池信息快照，返回 0
+        // 打开电池服务
+        private static func openBatteryService(_ service: inout io_service_t) -> kern_return_t {
+            service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+            if service == 0 {
+                return kIOReturnNotFound
             }
+            return kIOReturnSuccess
+        }
 
-            // 获取电池源列表
-            guard let sources: NSArray = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() else {
-                return level  // 无法获取电池源，返回 0
-            }
+        // 关闭电池服务连接
+        private static func closeBatteryService(_ service: io_service_t) {
+            IOObjectRelease(service)
+        }
 
-            // 遍历每个电池源
-            for ps in sources {
-                // 获取每个电池源的信息
-                guard let info: NSDictionary = IOPSGetPowerSourceDescription(snapshot, ps as CFTypeRef)?.takeUnretainedValue() else {
-                    continue  // 如果获取电池信息失败，则跳过
-                }
-
-                // 从电池信息字典中提取容量和电量
-                if let capacity = info[kIOPSCurrentCapacityKey] as? Int,
-                   let maxCapacity = info[kIOPSMaxCapacityKey] as? Int {
-                    level = Int((Float(capacity) / Float(maxCapacity)) * 100)
-                    break  // 获取到电池信息后直接跳出循环
-                }
+        // 获取电池信息（电量、最大容量、充电状态、温度）
+    private static func getMacBatteryInfo() -> MacBatteryInfo {
+        var batteryInfo = MacBatteryInfo(level: 0, maxCapacity: 0, isCharging: false, temperature: -1)
+        
+        let blob = IOPSCopyPowerSourcesInfo()
+        
+        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
+            return batteryInfo  // 如果获取电池信息失败，返回默认值
+        }
+        
+        guard let sources: NSArray = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() else {
+            return batteryInfo  // 如果获取电池源失败，返回默认值
+        }
+        
+        // 遍历每个电池源
+        for ps in sources {
+            guard let info: NSDictionary = IOPSGetPowerSourceDescription(snapshot, ps as CFTypeRef)?.takeUnretainedValue() else {
+                continue  // 如果获取电池信息失败，则跳过
             }
             
-            return level
+            // 获取电池最大容量、电量、充电状态
+            if let capacity = info[kIOPSMaxCapacityKey] as? Int,
+               let currentCapacity = info[kIOPSCurrentCapacityKey] as? Int {
+                batteryInfo.maxCapacity = capacity
+                batteryInfo.level = Int((Float(currentCapacity) / Float(capacity)) * 100)
+            }
+            
+            // 获取充电状态
+            if let powerState = info[kIOPSPowerSourceStateKey] as? String {
+                batteryInfo.isCharging = (powerState == kIOPSACPowerValue)
+            }
+            
+            // 获取电池温度
+            let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+            if service != 0 {
+                let temp = getBatteryTemperature(service)
+                if temp != -1 {
+                    batteryInfo.temperature = temp
+                }
+                IOObjectRelease(service)  // 释放服务
+            }
+            
+            break  // 获取到电池信息后直接跳出循环
         }
+        
+        return batteryInfo
+    }
+
+        // 获取电池温度（摄氏度）
+    private static func getBatteryTemperature(_ service: io_service_t) -> Double {
+        let prop = IORegistryEntryCreateCFProperty(service,
+                                                   "Temperature" as CFString?,  // 使用字符串 "Temperature" 来代替 Key.Temperature
+                                                   kCFAllocatorDefault, 0)
+        
+        guard let temperatureProp = prop?.takeUnretainedValue() as? Double else {
+            return -1  // 如果没有温度数据，返回 -1
+        }
+        
+        // 从开尔文转为摄氏度
+        let temperatureInCelsius = temperatureProp / 100.0
+        
+        return temperatureInCelsius
+    }
 #endif
 }
 

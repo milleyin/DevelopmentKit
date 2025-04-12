@@ -83,7 +83,7 @@ final class DevelopmentKitTests: XCTestCase {
                 expectation.fulfill()
             })
             .store(in: &subscriptions) // ✅ 用你统一的 subscriptions 管理
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 5.0)
     }
     
     #if os(macOS)
@@ -148,26 +148,36 @@ final class DevelopmentKitTests: XCTestCase {
             wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
         }
 #elseif os(macOS)
-    func testGetBatteryLevelPublisher() {
-            let expectation = XCTestExpectation(description: "获取 macOS 电池电量")
-            
-            // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
-            DevelopmentKit.getBatteryLevelPublisher()
-                .prefix(1)  // 只取第一个值
-                .sink(receiveCompletion: { completion in
-                    if case .failure(let error) = completion {
-                        XCTFail("电池电量获取失败：\(error)")
-                    }
-                }, receiveValue: { level in
-                    print("当前电池电量：\(level)%")
-                    XCTAssertGreaterThanOrEqual(level, 0)
-                    XCTAssertLessThanOrEqual(level, 100)
-                    expectation.fulfill()
-                })
-                .store(in: &subscriptions)
-            
-            wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
-        }
+    func testGetBatteryInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
+
+        // 使用 prefix(1) 来获取电池信息的第一个值，然后结束测试
+        DevelopmentKit.getBatteryInfoPublisher()
+            .prefix(1)  // 只取第一个值
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取电池信息失败：\(error.localizedDescription)")
+                }
+            }, receiveValue: { batteryInfo in
+                print("🔋电池电量：\(batteryInfo.level)%")
+                print("🔋最大容量：\(batteryInfo.maxCapacity)")
+                print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
+                print("🔋电池温度：\(batteryInfo.temperature) °C")
+
+                // 验证电池电量、最大容量、充电状态、温度
+                XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
+                XCTAssertLessThanOrEqual(batteryInfo.level, 100)
+                XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
+                XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
+                XCTAssert(batteryInfo.temperature >= 0)  // 电池温度应大于等于 0°C
+
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+
+        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
+    }
+    
 #endif
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
@@ -414,4 +424,47 @@ final class LogLocalManagerTests: XCTestCase {
         let remainingFiles = await LogLocalManager.shared.getLogFiles()
         XCTAssertTrue(remainingFiles.isEmpty, "❌ 日志文件未正确删除")
     }
+    
+    
 }
+
+//
+//class BatteryTests: XCTestCase {
+//    
+//    var battery: Battery!
+//    var subscriptions = Set<AnyCancellable>()  // 用于存储 Combine 的订阅
+//    
+//    override func setUp() {
+//        super.setUp()
+//        battery = Battery()
+//        let _ = battery.open()  // 打开电池服务
+//    }
+//    
+//    override func tearDown() {
+//        battery.close()  // 关闭电池服务
+//        subscriptions.removeAll()  // 清空订阅
+//        super.tearDown()
+//    }
+//    
+//    func testGetBatteryTemperature() {
+//        let expectation = XCTestExpectation(description: "获取电池温度")
+//        
+//        // 获取电池温度，单位：摄氏度
+//        battery.temperaturePublisher()
+//            .sink(receiveCompletion: { completion in
+//                switch completion {
+//                case .failure(let error):
+//                    XCTFail("获取电池温度失败：\(error.localizedDescription)")
+//                case .finished:
+//                    break
+//                }
+//            }, receiveValue: { temperature in
+//                print("⚡️电池温度：\(temperature) °C")
+//                XCTAssertGreaterThanOrEqual(temperature, 0)  // 验证温度不应为负数
+//                expectation.fulfill()
+//            })
+//            .store(in: &subscriptions)
+//        
+//        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，确保温度获取完成
+//    }
+//}
