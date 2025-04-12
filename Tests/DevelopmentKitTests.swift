@@ -9,7 +9,7 @@ import XCTest
 import Combine
 @testable import DevelopmentKit
 
-final class DevelopmentKitTests: XCTestCase {
+class DevelopmentKitTests: XCTestCase {
     
     var subscriptions = Set<AnyCancellable>()
     
@@ -18,7 +18,7 @@ final class DevelopmentKitTests: XCTestCase {
     func testIsPreview() {
         let previewEnv = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"]
         let expected = previewEnv == "1"
-        XCTAssertEqual(DevelopmentKit.isPreview, expected)
+        XCTAssertEqual(DevelopmentKit.Utilities.isPreview, expected)
     }
     
     /// 测试 `openMailApp()` 是否正确处理未安装邮件应用的情况
@@ -63,122 +63,11 @@ final class DevelopmentKitTests: XCTestCase {
 #endif
     }
     
-    /// 测试 `getNetworkTypePublisher()` 是否正确检测网络类型
-    func testGetNetworkTypePublisher() {
-        let expectation = XCTestExpectation(description: "获取网络类型")
 
-        let validTypes: Set<NetworkType> = [
-            .wifi, .cellular, .wired, .other, .none, .unknown
-        ]
-
-        DevelopmentKit.getNetworkTypePublisher(timeout: 1.0)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    print("⚠️ 获取失败（测试允许）：\(error)")
-                    expectation.fulfill()
-                }
-            }, receiveValue: { type in
-                print("✅ 获取到网络类型：\(type.rawValue)")
-                XCTAssertTrue(validTypes.contains(type), "返回的网络类型应在预定义范围内")
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions) // ✅ 用你统一的 subscriptions 管理
-        wait(for: [expectation], timeout: 5.0)
-    }
     
-    #if os(macOS)
-    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回一个信号等级
-    func testWiFiSignalLevelPublisher() {
-        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级")
-        
-        DevelopmentKit.getWiFiSignalLevelPublisher(interval: 0.5)
-            .prefix(1) // 只取一次结果
-            .sink { level in
-                print("获取到信号等级：\(level.rawValue)")
-                let allCases: [WiFiSignalLevel] = [
-                    .excellent, .good, .fair, .weak, .poor, .disconnected
-                ]
-                XCTAssertTrue(allCases.contains(level), "返回的信号等级应在合法枚举中")
-                expectation.fulfill()
-            }
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
-    }
+
     
-    //测试当前网速
-    func testSystemNetworkThroughput() {
-        let expectation = XCTestExpectation(description: "获取系统网络上下行流量")
-        
-        DevelopmentKit.getSystemNetworkThroughputPublisher(interval: 1.0)
-            .prefix(2) // 取两次：一次基准 + 一次实际变化
-            .sink { throughput in
-                print("⬇️ \(throughput.receivedBytesPerSec) B/s, ⬆️ \(throughput.sentBytesPerSec) B/s")
-                
-                // 至少结构应该有值（不一定非要大于 0）
-                XCTAssertGreaterThanOrEqual(throughput.receivedBytesPerSec, 0)
-                XCTAssertGreaterThanOrEqual(throughput.sentBytesPerSec, 0)
-                expectation.fulfill()
-            }
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 3.0)
-    }
-    #endif
-    
-#if os(iOS)
-    func testGetBatteryLevelPublisher() {
-            let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
-            
-            // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
-            DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
-                .prefix(1)  // 只取第一个值
-                .sink(receiveCompletion: { completion in
-                    if case .failure(let error) = completion {
-                        XCTFail("电池电量获取失败：\(error)")
-                    }
-                }, receiveValue: { level in
-                    print("当前电池电量：\(level)%")
-                    XCTAssertGreaterThanOrEqual(level, 0)
-                    XCTAssertLessThanOrEqual(level, 100)
-                    expectation.fulfill()
-                })
-                .store(in: &subscriptions)
-            
-            wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
-        }
-#elseif os(macOS)
-    func testGetBatteryInfoPublisher() {
-        let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
 
-        // 使用 prefix(1) 来获取电池信息的第一个值，然后结束测试
-        DevelopmentKit.getBatteryInfoPublisher()
-            .prefix(1)  // 只取第一个值
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    XCTFail("获取电池信息失败：\(error.localizedDescription)")
-                }
-            }, receiveValue: { batteryInfo in
-                print("🔋电池电量：\(batteryInfo.level)%")
-                print("🔋最大容量：\(batteryInfo.maxCapacity)")
-                print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
-                print("🔋电池温度：\(batteryInfo.temperature) °C")
-
-                // 验证电池电量、最大容量、充电状态、温度
-                XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
-                XCTAssertLessThanOrEqual(batteryInfo.level, 100)
-                XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
-                XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
-                XCTAssert(batteryInfo.temperature >= 0)  // 电池温度应大于等于 0°C
-
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-
-        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
-    }
-    
-#endif
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
@@ -191,18 +80,18 @@ final class DevelopmentKitTests: XCTestCase {
     
     /// 测试 `getAppName()` 是否正确获取 App 名称
     func testGetAppName() {
-        let appName = DevelopmentKit.getAppName()
+        let appName = DevelopmentKit.Utilities.getAppName()
         XCTAssertFalse(appName.isEmpty, "App 名称不应为空")
     }
     
     /// 测试 `appVersion` 是否能正确获取版本号
     func testAppVersion() {
-        XCTAssertFalse(DevelopmentKit.appVersion.isEmpty, "App 版本号不应为空")
+        XCTAssertFalse(DevelopmentKit.Utilities.appVersion.isEmpty, "App 版本号不应为空")
     }
     
     /// 测试 `buildNumber` 是否能正确获取编译版本号
     func testBuildNumber() {
-        XCTAssertFalse(DevelopmentKit.buildNumber.isEmpty, "App 编译版本号不应为空")
+        XCTAssertFalse(DevelopmentKit.Utilities.buildNumber.isEmpty, "App 编译版本号不应为空")
     }
     
     /// 测试 `toYMDFormat()` 是否正确格式化日期
@@ -250,6 +139,138 @@ final class DevelopmentKitTests: XCTestCase {
         let hash = input.sha256
         XCTAssertFalse(hash.isEmpty, "SHA-256 结果不应为空")
     }
+    
+}
+
+// MARK: - 网络测试
+
+class NetworkTests: XCTestCase {
+    
+    var subscriptions = Set<AnyCancellable>()
+    
+    /// 测试 `getNetworkTypePublisher()` 是否正确检测网络类型
+    func testGetNetworkTypePublisher() {
+        let expectation = XCTestExpectation(description: "获取网络类型")
+        
+        let validTypes: Set<NetworkType> = [
+            .wifi, .cellular, .wired, .other, .none, .unknown
+        ]
+        
+        DevelopmentKit.Network.getNetworkTypePublisher(timeout: 1.0)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    print("⚠️ 获取失败（测试允许）：\(error)")
+                    expectation.fulfill()
+                }
+            }, receiveValue: { type in
+                print("✅ 获取到网络类型：\(type.rawValue)")
+                XCTAssertTrue(validTypes.contains(type), "返回的网络类型应在预定义范围内")
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions) // ✅ 用你统一的 subscriptions 管理
+        wait(for: [expectation], timeout: 5.0)
+    }
+    
+#if os(macOS)
+    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回一个信号等级
+    func testWiFiSignalLevelPublisher() {
+        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级")
+        
+        DevelopmentKit.Network.getWiFiSignalLevelPublisher(interval: 0.5)
+            .prefix(1) // 只取一次结果
+            .sink { level in
+                print("获取到信号等级：\(level.rawValue)")
+                let allCases: [WiFiSignalLevel] = [
+                    .excellent, .good, .fair, .weak, .poor, .disconnected
+                ]
+                XCTAssertTrue(allCases.contains(level), "返回的信号等级应在合法枚举中")
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
+    
+    //测试当前网速
+    func testSystemNetworkThroughput() {
+        let expectation = XCTestExpectation(description: "获取系统网络上下行流量")
+        
+        DevelopmentKit.Network.getSystemNetworkThroughputPublisher(interval: 1.0)
+            .prefix(2) // 取两次：一次基准 + 一次实际变化
+            .sink { throughput in
+                print("⬇️ \(throughput.receivedBytesPerSec) B/s, ⬆️ \(throughput.sentBytesPerSec) B/s")
+                
+                // 至少结构应该有值（不一定非要大于 0）
+                XCTAssertGreaterThanOrEqual(throughput.receivedBytesPerSec, 0)
+                XCTAssertGreaterThanOrEqual(throughput.sentBytesPerSec, 0)
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 3.0)
+    }
+#endif
+}
+
+// MARK: - 系统信息
+
+class SystemInfoTests: XCTestCase {
+    
+    var subscriptions = Set<AnyCancellable>()
+    
+#if os(iOS)
+    func testGetBatteryLevelPublisher() {
+            let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
+            
+            // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
+            DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
+                .prefix(1)  // 只取第一个值
+                .sink(receiveCompletion: { completion in
+                    if case .failure(let error) = completion {
+                        XCTFail("电池电量获取失败：\(error)")
+                    }
+                }, receiveValue: { level in
+                    print("当前电池电量：\(level)%")
+                    XCTAssertGreaterThanOrEqual(level, 0)
+                    XCTAssertLessThanOrEqual(level, 100)
+                    expectation.fulfill()
+                })
+                .store(in: &subscriptions)
+            
+            wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
+        }
+#elseif os(macOS)
+    func testGetBatteryInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
+
+        // 使用 prefix(1) 来获取电池信息的第一个值，然后结束测试
+        DevelopmentKit.SysInfo.getBatteryInfoPublisher()
+            .prefix(1)  // 只取第一个值
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取电池信息失败：\(error.localizedDescription)")
+                }
+            }, receiveValue: { batteryInfo in
+                print("🔋电池电量：\(batteryInfo.level)%")
+                print("🔋最大容量：\(batteryInfo.maxCapacity)")
+                print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
+                print("🔋电池温度：\(batteryInfo.temperature) °C")
+
+                // 验证电池电量、最大容量、充电状态、温度
+                XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
+                XCTAssertLessThanOrEqual(batteryInfo.level, 100)
+                XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
+                XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
+                XCTAssert(batteryInfo.temperature >= 0)  // 电池温度应大于等于 0°C
+
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+
+        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
+    }
+    
+#endif
     
 }
 
@@ -427,44 +448,3 @@ final class LogLocalManagerTests: XCTestCase {
     
     
 }
-
-//
-//class BatteryTests: XCTestCase {
-//    
-//    var battery: Battery!
-//    var subscriptions = Set<AnyCancellable>()  // 用于存储 Combine 的订阅
-//    
-//    override func setUp() {
-//        super.setUp()
-//        battery = Battery()
-//        let _ = battery.open()  // 打开电池服务
-//    }
-//    
-//    override func tearDown() {
-//        battery.close()  // 关闭电池服务
-//        subscriptions.removeAll()  // 清空订阅
-//        super.tearDown()
-//    }
-//    
-//    func testGetBatteryTemperature() {
-//        let expectation = XCTestExpectation(description: "获取电池温度")
-//        
-//        // 获取电池温度，单位：摄氏度
-//        battery.temperaturePublisher()
-//            .sink(receiveCompletion: { completion in
-//                switch completion {
-//                case .failure(let error):
-//                    XCTFail("获取电池温度失败：\(error.localizedDescription)")
-//                case .finished:
-//                    break
-//                }
-//            }, receiveValue: { temperature in
-//                print("⚡️电池温度：\(temperature) °C")
-//                XCTAssertGreaterThanOrEqual(temperature, 0)  // 验证温度不应为负数
-//                expectation.fulfill()
-//            })
-//            .store(in: &subscriptions)
-//        
-//        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，确保温度获取完成
-//    }
-//}
