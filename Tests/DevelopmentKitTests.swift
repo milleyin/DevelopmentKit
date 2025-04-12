@@ -240,6 +240,8 @@ class SystemInfoTests: XCTestCase {
             wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
         }
 #elseif os(macOS)
+    
+    //电池信息
     func testGetBatteryInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
 
@@ -255,13 +257,15 @@ class SystemInfoTests: XCTestCase {
                 print("🔋最大容量：\(batteryInfo.maxCapacity)")
                 print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
                 print("🔋电池温度：\(batteryInfo.temperature) °C")
+                print("🔋电池循环次数：\(batteryInfo.cycleCount) °C")
 
                 // 验证电池电量、最大容量、充电状态、温度
                 XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
                 XCTAssertLessThanOrEqual(batteryInfo.level, 100)
                 XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
                 XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
-                XCTAssert(batteryInfo.temperature >= 0)  // 电池温度应大于等于 0°C
+                XCTAssert(batteryInfo.temperature >= 0)
+                XCTAssert(batteryInfo.cycleCount >= 0)
 
                 expectation.fulfill()
             })
@@ -269,6 +273,32 @@ class SystemInfoTests: XCTestCase {
 
         wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
     }
+    
+    //内存信息
+        func testGetMemoryInfoPublisher() {
+            let expectation = XCTestExpectation(description: "获取内存信息")
+
+            DevelopmentKit.SysInfo.getMemoryInfoPublisher()
+                .sink { completion in
+                    if case .failure(let error) = completion {
+                        XCTFail("获取内存信息失败：\(error)")
+                        expectation.fulfill()
+                    }
+                } receiveValue: { info in
+                    print(info) // 💾 打印内存信息
+
+                    XCTAssertGreaterThan(info.total, 0, "总内存应大于 0")
+                    XCTAssertGreaterThanOrEqual(info.free, 0, "空闲内存应为正")
+                    XCTAssertGreaterThanOrEqual(info.inactive, 0, "可回收内存应为正")
+                    XCTAssertGreaterThanOrEqual(info.used, 0, "已使用内存应为正")
+                    XCTAssertLessThanOrEqual(info.used, info.total, "已使用内存不应大于总内存")
+
+                    expectation.fulfill()
+                }
+                .store(in: &subscriptions)
+
+            wait(for: [expectation], timeout: 2.0)
+        }
     
 #endif
     

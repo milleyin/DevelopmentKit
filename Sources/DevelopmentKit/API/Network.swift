@@ -29,50 +29,31 @@ extension DevelopmentKit.Network {
      - Returns: `AnyPublisher<NetworkType, NetworkError>`
      */
     public static func getNetworkTypePublisher(timeout: TimeInterval = 0.5) -> AnyPublisher<NetworkType, NetworkError> {
-        let subject = PassthroughSubject<NetworkType, NetworkError>()
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue.global(qos: .background)
-        
-        let state = State()
-        
-        func resolve(_ type: NetworkType) {
-            state.resolveOnce {
-                subject.send(type)
-                subject.send(completion: .finished)
+        Future<NetworkType, NetworkError> { promise in
+            let monitor = NWPathMonitor()
+            let queue = DispatchQueue.global(qos: .background)
+
+            monitor.pathUpdateHandler = { path in
+                if path.usesInterfaceType(.wifi) {
+                    promise(.success(.wifi))
+                } else if path.usesInterfaceType(.cellular) {
+                    promise(.success(.cellular))
+                } else if path.usesInterfaceType(.wiredEthernet) {
+                    promise(.success(.wired))
+                } else if path.usesInterfaceType(.other) {
+                    promise(.success(.other))
+                } else if path.status == .unsatisfied {
+                    promise(.success(.none))
+                } else {
+                    promise(.failure(.unableToDetermineNetworkType))
+                }
                 monitor.cancel()
             }
+
+            monitor.start(queue: queue)
         }
-        
-        func fail(_ error: NetworkError) {
-            state.resolveOnce {
-                subject.send(completion: .failure(error))
-                monitor.cancel()
-            }
-        }
-        
-        monitor.pathUpdateHandler = { path in
-            if path.usesInterfaceType(.wifi) {
-                resolve(.wifi)
-            } else if path.usesInterfaceType(.cellular) {
-                resolve(.cellular)
-            } else if path.usesInterfaceType(.wiredEthernet) {
-                resolve(.wired)
-            } else if path.usesInterfaceType(.other) {
-                resolve(.other)
-            } else if path.status == .unsatisfied {
-                resolve(.none)
-            } else {
-                fail(.unableToDetermineNetworkType)
-            }
-        }
-        
-        monitor.start(queue: queue)
-        
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-            fail(.timeout)
-        }
-        
-        return subject.eraseToAnyPublisher()
+        .timeout(.seconds(timeout), scheduler: DispatchQueue.global())
+        .eraseToAnyPublisher()
     }
     
 #if os(macOS)

@@ -63,4 +63,39 @@ public struct MacBatteryInfo {
     var isCharging: Bool
     /// 电池温度 (单位：摄氏度)
     var temperature: Double
+    /// 循环次数
+    public var cycleCount: Int
+    
+    public init(level: Int = 0, maxCapacity: Int = 0, isCharging: Bool = false, temperature: Double = -1, cycleCount: Int = 0) {
+        self.level = level
+        self.maxCapacity = maxCapacity
+        self.isCharging = isCharging
+        self.temperature = temperature
+        self.cycleCount = cycleCount
+    }
+}
+///内存结构
+public struct MacMemoryInfo: CustomStringConvertible {
+    public let total: Double
+    public let free: Double
+    public let used: Double
+    public let inactive: Double
+
+    public init(total: Double, free: Double, used: Double, inactive: Double) {
+        self.total = total
+        self.free = free
+        self.used = used
+        self.inactive = inactive
+    }
+
+    /// 打印友好的文字描述
+    public var description: String {
+        """
+        💾 内存状态：
+        - 总内存：\(total) GB
+        - 空闲内存：\(free) GB
+        - 已使用内存：\(used) GB
+        - 可回收内存（Inactive）：\(inactive) GB
+        """
+    }
 }

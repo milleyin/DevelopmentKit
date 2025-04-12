@@ -1,71 +1,13 @@
 //
-//  Extension.swift
+//  File.swift
 //  DevelopmentKit
 //
-//  Created by Mille Yin on 2025/2/26.
+//  Created by mille on 2025/4/12.
 //
 
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#endif
 import CryptoKit
 import CommonCrypto
-//#endif
-
-// MARK: - 日期扩展
-
-extension Date {
-    /**
-     将 `Date` 转换为 `yyyy-MM-dd` 格式的字符串。
-
-     - Important: 该方法使用 `DateFormatter` 进行格式化，
-       确保日期始终按照 `yyyy-MM-dd` 格式返回。
-     - Attention: `DateFormatter` 的创建会影响性能，
-       如果需要频繁调用，建议使用 **静态实例** 避免重复创建。
-     - Returns: 以 `yyyy-MM-dd` 格式返回的日期字符串。
-
-     示例：
-
-     ```swift
-     let dateString = Date().toYMDFormat()
-     print("当前日期: \(dateString)")
-     ```
-     */
-    public func toYMDFormat() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: self)
-    }
-}
-
-// MARK: - UIApplication 扩展
-
-#if os(iOS)
-extension UIApplication {
-    /**
-     隐藏键盘。
-     
-     - Important: 该方法使用 `UIResponder.resignFirstResponder`，
-       通过 `sendAction` 方式使当前第一响应者失去焦点，从而关闭键盘。
-     - Attention: 仅适用于 iOS 设备，macOS 和其他平台不支持。
-     - Note: 适用于需要手动关闭键盘的场景，
-       例如点击空白区域时。
-     
-     示例：
-     
-     ```swift
-     UIApplication.shared.hideKeyboard()
-     ```
-     */
-    public func hideKeyboard() {
-        self.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-}
-#endif
-
-
-// MARK: - String 扩展
 
 extension String {
     /**

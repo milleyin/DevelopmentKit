@@ -15,66 +15,66 @@ import Darwin //NOTE: ifaddrs/if_data 等结构体来自 Darwin 系统库，无�
 
 extension DevelopmentKit.SysInfo {
 #if os(iOS)
-/// 持续监听 iOS 电池电量变化
-public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
-    // 确保设备支持电池监测
-    UIDevice.current.isBatteryMonitoringEnabled = true
-    
-    // 每隔 interval 秒获取一次电池电量
-    return Timer.publish(every: interval, on: .main, in: .common)
-        .autoconnect()  // 启动计时器
-        .map { _ in
-            Int(UIDevice.current.batteryLevel * 100)  // 返回百分比
-        }
-        .eraseToAnyPublisher()
-}
+    /// 持续监听 iOS 电池电量变化
+    public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
+        // 确保设备支持电池监测
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        
+        // 每隔 interval 秒获取一次电池电量
+        return Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()  // 启动计时器
+            .map { _ in
+                Int(UIDevice.current.batteryLevel * 100)  // 返回百分比
+            }
+            .eraseToAnyPublisher()
+    }
 #elseif os(macOS)
     
     /// 获取 macOS 电池信息（电量、最大容量、充电状态、温度）
-        public static func getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, Swift.Error> {
-            return Future { promise in
-                var service: io_service_t = 0
-
-                // 打开电池服务
-                let openResult = openBatteryService(&service)
-                if openResult != kIOReturnSuccess {
-                    promise(.failure(NSError(domain: "BatteryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法打开电池服务"])))
-                    return
-                }
-                
-                // 获取电池信息
-                let batteryInfo = getMacBatteryInfo()
-                if batteryInfo.temperature == -1 {
-                    promise(.failure(NSError(domain: "BatteryError", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取电池温度"])))
-                } else {
-                    promise(.success(batteryInfo))
-                }
-                
-                // 关闭电池服务
-                closeBatteryService(service)
+    public static func getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, Swift.Error> {
+        return Future { promise in
+            var service: io_service_t = 0
+            
+            // 打开电池服务
+            let openResult = openBatteryService(&service)
+            if openResult != kIOReturnSuccess {
+                promise(.failure(NSError(domain: "BatteryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法打开电池服务"])))
+                return
             }
-            .eraseToAnyPublisher()
-        }
-
-        // 打开电池服务
-        private static func openBatteryService(_ service: inout io_service_t) -> kern_return_t {
-            service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
-            if service == 0 {
-                return kIOReturnNotFound
+            
+            // 获取电池信息
+            let batteryInfo = getMacBatteryInfo()
+            if batteryInfo.temperature == -1 {
+                promise(.failure(NSError(domain: "BatteryError", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取电池温度"])))
+            } else {
+                promise(.success(batteryInfo))
             }
-            return kIOReturnSuccess
+            
+            // 关闭电池服务
+            closeBatteryService(service)
         }
-
-        // 关闭电池服务连接
-        private static func closeBatteryService(_ service: io_service_t) {
-            IOObjectRelease(service)
+        .eraseToAnyPublisher()
+    }
+    
+    // 打开电池服务
+    private static func openBatteryService(_ service: inout io_service_t) -> kern_return_t {
+        service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        if service == 0 {
+            return kIOReturnNotFound
         }
-
-        // 获取电池信息（电量、最大容量、充电状态、温度）
+        return kIOReturnSuccess
+    }
+    
+    // 关闭电池服务连接
+    private static func closeBatteryService(_ service: io_service_t) {
+        IOObjectRelease(service)
+    }
+    
+    // 获取电池信息（电量、最大容量、充电状态、温度）
     private static func getMacBatteryInfo() -> MacBatteryInfo {
-        var batteryInfo = MacBatteryInfo(level: 0, maxCapacity: 0, isCharging: false, temperature: -1)
+        var batteryInfo = MacBatteryInfo()
         
-        let blob = IOPSCopyPowerSourcesInfo()
+        _ = IOPSCopyPowerSourcesInfo()
         
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
             return batteryInfo  // 如果获取电池信息失败，返回默认值
@@ -109,6 +109,10 @@ public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> Any
                 if temp != -1 {
                     batteryInfo.temperature = temp
                 }
+                let cycleCount = getBatteryCycleCount(service)
+                if cycleCount != -1 {
+                    batteryInfo.cycleCount = cycleCount
+                }
                 IOObjectRelease(service)  // 释放服务
             }
             
@@ -117,8 +121,8 @@ public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> Any
         
         return batteryInfo
     }
-
-        // 获取电池温度（摄氏度）
+    
+    // 获取电池温度（摄氏度）
     private static func getBatteryTemperature(_ service: io_service_t) -> Double {
         let prop = IORegistryEntryCreateCFProperty(service,
                                                    "Temperature" as CFString?,  // 使用字符串 "Temperature" 来代替 Key.Temperature
@@ -133,5 +137,64 @@ public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> Any
         
         return temperatureInCelsius
     }
+    /// 获取电池循环次数
+    private static func getBatteryCycleCount(_ service: io_service_t) -> Int {
+        let prop = IORegistryEntryCreateCFProperty(service,
+                                                   "CycleCount" as CFString?,
+                                                   kCFAllocatorDefault, 0)
+        guard let count = prop?.takeUnretainedValue() as? Int else {
+            return -1
+        }
+        return count
+    }
 #endif
+    
+    
+}
+
+extension DevelopmentKit.SysInfo {
+    
+    /// 获取 macOS 内存信息（单位：GB）
+    public static func getMemoryInfoPublisher() -> AnyPublisher<MacMemoryInfo, Swift.Error> {
+        let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
+        return Future<MacMemoryInfo, Swift.Error> { promise in
+            var stats = vm_statistics64()
+            var count = mach_msg_type_number_t(HOST_VM_INFO64_COUNT)
+            let result = withUnsafeMutablePointer(to: &stats) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                    host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+                }
+            }
+
+            if result != KERN_SUCCESS {
+                promise(.failure(NSError(domain: "MemoryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取内存信息"])))
+                return
+            }
+
+            // 获取总内存
+            var totalMemory: UInt64 = 0
+            var sizeOfMem = MemoryLayout<UInt64>.size
+            sysctlbyname("hw.memsize", &totalMemory, &sizeOfMem, nil, 0)
+
+            let pageSize = UInt64(vm_kernel_page_size)
+            let free = Double(stats.free_count) * Double(pageSize)
+            let inactive = Double(stats.inactive_count) * Double(pageSize)
+            let total = Double(totalMemory)
+            let used = total - free
+
+            func toGB(_ bytes: Double) -> Double {
+                return (bytes / 1_073_741_824).rounded(toPlaces: 2)
+            }
+
+            let info = MacMemoryInfo(
+                total: toGB(total),
+                free: toGB(free),
+                used: toGB(used),
+                inactive: toGB(inactive)
+            )
+
+            promise(.success(info))
+        }
+        .eraseToAnyPublisher()
+    }
 }
