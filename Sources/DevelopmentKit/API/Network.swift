@@ -90,14 +90,24 @@ extension DevelopmentKit.Network {
     /**
      获取当前 macOS 设备的 Wi-Fi 讯号强度等级，以 Publisher 方式定时推送。
      
-     - Important: 本方法仅适用于 macOS 系统，使用 `CoreWLAN` 框架读取当前 Wi-Fi 接口的 RSSI 值（Received Signal Strength Indicator）。
+     - Important:
+     本方法仅适用于 macOS 系统，使用 `CoreWLAN` 框架读取当前 Wi-Fi 接口的 RSSI 值（Received Signal Strength Indicator）。
      RSSI 会根据当前连接的网络状况动态变化，结果将映射为应用层定义的 `WiFiSignalLevel` 枚举值。
-     
+
+     - Attention:
+     自 macOS 13 起，若要正常读取 RSSI 值，需满足以下条件（否则将始终返回 `.disconnected`）：
+     1. **关闭 App Sandbox**（在 `.entitlements` 中设置 `com.apple.security.app-sandbox = false`）；
+     2. **启用 Wi-Fi 权限**（添加 `com.apple.developer.networking.wifi-info = true` 到 `.entitlements`）；
+     3. **在 Info.plist 中声明定位用途**（添加 `NSLocationWhenInUseUsageDescription` 字段）；
+     4. **主动触发定位授权流程**（调用 `CLLocationManager().requestWhenInUseAuthorization()` 并 `startUpdatingLocation()`）。
+
+     若缺少上述任一项，RSSI 将始终返回 `nil`，即便 Wi-Fi 已连接。
+
      - Note:
-     - 返回值为自定义的 `WiFiSignalLevel` 类型，通常包括 `.excellent`, `.good`, `.weak`, `.none` 等等级（取决于你枚举的定义）。
-     - RSSI 的原始单位为 dBm，一般范围约在 `-30 ~ -90`（数值越负表示讯号越弱），本方法将其转为等级表示，便于 UI 显示。
+     - 返回值为自定义的 `WiFiSignalLevel` 类型，包括 `.excellent`, `.good`, `.fair`, `.weak`, `.poor`, `.disconnected` 等等级。
+     - RSSI 原始单位为 dBm，范围约在 `-30 ~ -90`（越小表示讯号越差），本方法会将其转换为易读等级。
      - 使用 `Timer.publish` 实现定时检测，默认每秒推送一次，可通过 `interval` 参数自定义。
-     - 当讯号等级连续相同，Publisher 不会重复推送（使用 `removeDuplicates()` 处理）。
+     - 连续相同等级将不会重复推送（通过 `removeDuplicates()` 处理）。
      
      - Parameter interval: 检测讯号等级的时间间隔（单位：秒），默认值为 `1.0` 秒。
      
@@ -107,10 +117,10 @@ extension DevelopmentKit.Network {
      
      ```swift
      getWiFiSignalLevelPublisher(interval: 2.0)
-     .sink { level in
-     print("当前 Wi-Fi 强度：\(level)")
-     }
-     .store(in: &cancellables)
+         .sink { level in
+             print("当前 Wi-Fi 强度：\(level)")
+         }
+         .store(in: &cancellables)
      ```
      */
     public static func getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, Never> {
