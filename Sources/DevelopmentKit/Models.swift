@@ -99,3 +99,33 @@ public struct MacMemoryInfo: CustomStringConvertible {
         """
     }
 }
+///cpu数据结构
+public struct MacCPUInfo {
+    /// 型号 / 名称
+    public let model: String
+    /// 物理核心数
+    public let physicalCores: Int
+    /// 逻辑核心数（包含超线程）
+    public let logicalCores: Int
+    /// 总体占用率（单位：%）
+    public let totalUsage: Double
+    /// 总体空闲率（单位：%）
+    public let totalIdle: Double
+    /// 每个核心使用率 [%]，顺序与 core index 一致
+    public let coreUsages: [Double]
+    
+    public var description: String {
+        let coreList = coreUsages.enumerated()
+            .map { "  - Core \($0.offset): \($0.element.rounded(toPlaces: 2))%" }
+            .joined(separator: "\n")
+        return """
+            🧠 CPU 型号：\(model)
+            🔩 物理核心数：\(physicalCores)
+            🔢 逻辑核心数：\(logicalCores)
+            ⚙️ 总体占用：\(totalUsage.rounded(toPlaces: 2))%
+            💤 总体空闲：\(totalIdle.rounded(toPlaces: 2))%
+            💡 每核心占用：
+            \(coreList)
+            """
+    }
+}

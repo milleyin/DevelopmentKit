@@ -220,31 +220,31 @@ class SystemInfoTests: XCTestCase {
     
 #if os(iOS)
     func testGetBatteryLevelPublisher() {
-            let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
-            
-            // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
-            DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
-                .prefix(1)  // 只取第一个值
-                .sink(receiveCompletion: { completion in
-                    if case .failure(let error) = completion {
-                        XCTFail("电池电量获取失败：\(error)")
-                    }
-                }, receiveValue: { level in
-                    print("当前电池电量：\(level)%")
-                    XCTAssertGreaterThanOrEqual(level, 0)
-                    XCTAssertLessThanOrEqual(level, 100)
-                    expectation.fulfill()
-                })
-                .store(in: &subscriptions)
-            
-            wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
-        }
+        let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
+        
+        // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
+        DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
+            .prefix(1)  // 只取第一个值
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("电池电量获取失败：\(error)")
+                }
+            }, receiveValue: { level in
+                print("当前电池电量：\(level)%")
+                XCTAssertGreaterThanOrEqual(level, 0)
+                XCTAssertLessThanOrEqual(level, 100)
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
+    }
 #elseif os(macOS)
     
     //电池信息
     func testGetBatteryInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
-
+        
         // 使用 prefix(1) 来获取电池信息的第一个值，然后结束测试
         DevelopmentKit.SysInfo.getBatteryInfoPublisher()
             .prefix(1)  // 只取第一个值
@@ -258,7 +258,7 @@ class SystemInfoTests: XCTestCase {
                 print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
                 print("🔋电池温度：\(batteryInfo.temperature) °C")
                 print("🔋电池循环次数：\(batteryInfo.cycleCount) °C")
-
+                
                 // 验证电池电量、最大容量、充电状态、温度
                 XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
                 XCTAssertLessThanOrEqual(batteryInfo.level, 100)
@@ -266,42 +266,74 @@ class SystemInfoTests: XCTestCase {
                 XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
                 XCTAssert(batteryInfo.temperature >= 0)
                 XCTAssert(batteryInfo.cycleCount >= 0)
-
+                
                 expectation.fulfill()
             })
             .store(in: &subscriptions)
-
+        
         wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
     }
     
     //内存信息
-        func testGetMemoryInfoPublisher() {
-            let expectation = XCTestExpectation(description: "获取内存信息")
-
-            DevelopmentKit.SysInfo.getMemoryInfoPublisher()
-                .sink { completion in
-                    if case .failure(let error) = completion {
-                        XCTFail("获取内存信息失败：\(error)")
-                        expectation.fulfill()
-                    }
-                } receiveValue: { info in
-                    print(info) // 💾 打印内存信息
-
-                    XCTAssertGreaterThan(info.total, 0, "总内存应大于 0")
-                    XCTAssertGreaterThanOrEqual(info.free, 0, "空闲内存应为正")
-                    XCTAssertGreaterThanOrEqual(info.inactive, 0, "可回收内存应为正")
-                    XCTAssertGreaterThanOrEqual(info.used, 0, "已使用内存应为正")
-                    XCTAssertLessThanOrEqual(info.used, info.total, "已使用内存不应大于总内存")
-
+    func testGetMemoryInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取内存信息")
+        
+        DevelopmentKit.SysInfo.getMemoryInfoPublisher()
+            .sink { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取内存信息失败：\(error)")
                     expectation.fulfill()
                 }
-                .store(in: &subscriptions)
-
-            wait(for: [expectation], timeout: 2.0)
-        }
+            } receiveValue: { info in
+                print(info) // 💾 打印内存信息
+                
+                XCTAssertGreaterThan(info.total, 0, "总内存应大于 0")
+                XCTAssertGreaterThanOrEqual(info.free, 0, "空闲内存应为正")
+                XCTAssertGreaterThanOrEqual(info.inactive, 0, "可回收内存应为正")
+                XCTAssertGreaterThanOrEqual(info.used, 0, "已使用内存应为正")
+                XCTAssertLessThanOrEqual(info.used, info.total, "已使用内存不应大于总内存")
+                
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
+    
+    /// CPU测试
+    func testGetCPUInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取 CPU 信息")
+        
+        DevelopmentKit.SysInfo.getCPUInfoPublisher()
+            .sink { completion in
+                if case .failure(let error) = completion {
+                    XCTFail("获取 CPU 信息失败：\(error)")
+                    expectation.fulfill()
+                }
+            } receiveValue: { info in
+                print(info)
+                
+                XCTAssertFalse(info.model.isEmpty, "CPU 型号不应为空")
+                XCTAssertGreaterThan(info.physicalCores, 0, "物理核心数应大于 0")
+                XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores, "逻辑核心数应 ≥ 物理核心数")
+                
+                let totalSum = info.totalUsage + info.totalIdle
+                XCTAssertEqual(totalSum.rounded(toPlaces: 1), 100.0, accuracy: 1.0, "占用率 + 空闲率 应约等于 100")
+                
+                XCTAssertEqual(info.coreUsages.count, info.logicalCores, "核心使用率数量应等于逻辑核心数")
+                
+                for (i, usage) in info.coreUsages.enumerated() {
+                    XCTAssert(usage >= 0 && usage <= 100, "Core \(i) 使用率应在 0 ~ 100 范围内")
+                }
+                
+                expectation.fulfill()
+            }
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 2.0)
+    }
     
 #endif
-    
 }
 
 
