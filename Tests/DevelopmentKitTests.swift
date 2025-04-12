@@ -304,7 +304,7 @@ class SystemInfoTests: XCTestCase {
     func testGetCPUInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 CPU 信息")
         
-        DevelopmentKit.SysInfo.getCPUInfoPublisher()
+        DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 1)
             .sink { completion in
                 if case .failure(let error) = completion {
                     XCTFail("获取 CPU 信息失败：\(error)")

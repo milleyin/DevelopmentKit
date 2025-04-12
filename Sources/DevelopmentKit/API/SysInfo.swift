@@ -309,65 +309,72 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getCPUInfoPublisher() -> AnyPublisher<MacCPUInfo, Error> {
-        Future<MacCPUInfo, Error> { promise in
-            // 型号 / 名称
-            var modelBuffer = [CChar](repeating: 0, count: 256)
-            var size = modelBuffer.count
-            sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
-            let model = String(cString: modelBuffer)
-            
-            // 核心数
-            var physicalCores: Int32 = 0
-            var logicalCores: Int32 = 0
-            size = MemoryLayout.size(ofValue: physicalCores)
-            sysctlbyname("hw.physicalcpu", &physicalCores, &size, nil, 0)
-            sysctlbyname("hw.logicalcpu", &logicalCores, &size, nil, 0)
-            
-            // 使用率
-            var cpuCount: natural_t = 0
-            var cpuInfo: processor_info_array_t?
-            var numCPUInfo: mach_msg_type_number_t = 0
-            let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
-            
-            guard result == KERN_SUCCESS, let info = cpuInfo else {
-                promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 使用率"])))
-                return
+    public static func getCPUInfoPublisher(interval: TimeInterval) -> AnyPublisher<MacCPUInfo, Error> {
+        if interval <= 0 {
+            return Future<MacCPUInfo, Error> { promise in
+                var modelBuffer = [CChar](repeating: 0, count: 256)
+                var size = modelBuffer.count
+                sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
+                let model = String(cString: modelBuffer)
+
+                var physicalCores: Int32 = 0
+                var logicalCores: Int32 = 0
+                size = MemoryLayout.size(ofValue: physicalCores)
+                sysctlbyname("hw.physicalcpu", &physicalCores, &size, nil, 0)
+                sysctlbyname("hw.logicalcpu", &logicalCores, &size, nil, 0)
+
+                var cpuCount: natural_t = 0
+                var cpuInfo: processor_info_array_t?
+                var numCPUInfo: mach_msg_type_number_t = 0
+                let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
+
+                guard result == KERN_SUCCESS, let info = cpuInfo else {
+                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 使用率"])))
+                    return
+                }
+
+                var coreUsages: [Double] = []
+                var totalUsed: Double = 0
+                var totalIdle: Double = 0
+
+                for i in 0..<Int(cpuCount) {
+                    let stateCount = Int(CPU_STATE_MAX)
+                    let base = stateCount * i
+                    let user = Double(info[base + Int(CPU_STATE_USER)])
+                    let system = Double(info[base + Int(CPU_STATE_SYSTEM)])
+                    let idle = Double(info[base + Int(CPU_STATE_IDLE)])
+                    let nice = Double(info[base + Int(CPU_STATE_NICE)])
+
+                    let total = user + system + idle + nice
+                    let used = user + system + nice
+                    let usagePercent = (used / total) * 100
+
+                    coreUsages.append(usagePercent)
+                    totalUsed += used
+                    totalIdle += idle
+                }
+
+                let totalAll = totalUsed + totalIdle
+                let infoStruct = MacCPUInfo(
+                    model: model,
+                    physicalCores: Int(physicalCores),
+                    logicalCores: Int(logicalCores),
+                    totalUsage: (totalUsed / totalAll) * 100,
+                    totalIdle: (totalIdle / totalAll) * 100,
+                    coreUsages: coreUsages
+                )
+
+                promise(.success(infoStruct))
             }
-            
-            var coreUsages: [Double] = []
-            var totalUsed: Double = 0
-            var totalIdle: Double = 0
-            
-            for i in 0..<Int(cpuCount) {
-                let stateCount = Int(CPU_STATE_MAX)
-                let base = stateCount * i
-                let user = Double(info[base + Int(CPU_STATE_USER)])
-                let system = Double(info[base + Int(CPU_STATE_SYSTEM)])
-                let idle = Double(info[base + Int(CPU_STATE_IDLE)])
-                let nice = Double(info[base + Int(CPU_STATE_NICE)])
-                
-                let total = user + system + idle + nice
-                let used = user + system + nice
-                let usagePercent = (used / total) * 100
-                
-                coreUsages.append(usagePercent)
-                totalUsed += used
-                totalIdle += idle
-            }
-            
-            let totalAll = totalUsed + totalIdle
-            let infoStruct = MacCPUInfo(
-                model: model,
-                physicalCores: Int(physicalCores),
-                logicalCores: Int(logicalCores),
-                totalUsage: (totalUsed / totalAll) * 100,
-                totalIdle: (totalIdle / totalAll) * 100,
-                coreUsages: coreUsages
-            )
-            
-            promise(.success(infoStruct))
+            .eraseToAnyPublisher()
+        } else {
+            return Timer.publish(every: interval, on: .main, in: .common)
+                .autoconnect()
+                .flatMap { _ in
+                    getCPUInfoPublisher(interval: 0)
+                }
+                .eraseToAnyPublisher()
         }
-        .eraseToAnyPublisher()
     }
+
 }
