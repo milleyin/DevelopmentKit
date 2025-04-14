@@ -450,3 +450,55 @@ extension DevelopmentKit.SysInfo {
     }
 
 }
+
+//MARK: - 磁盘容量信息接口
+extension DevelopmentKit.SysInfo {
+
+    /**
+         获取 macOS 磁盘剩余空间（单位：GB），并定时更新。
+         
+         - Important: 该方法使用定时器每隔 `interval` 秒获取一次磁盘剩余空间。返回的结果为一个 `AnyPublisher`，可以通过订阅来接收更新。
+         - Attention: 该方法返回值为磁盘剩余空间的 GB 数值，如果无法获取到磁盘信息，返回 0。
+         - Parameter interval: 获取磁盘剩余空间的时间间隔，默认为 1 秒。
+         - Returns: `AnyPublisher<Int, Never>`，返回的发布者会定时发布磁盘剩余空间的更新值。
+         
+         示例：
+         ```swift
+         DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 2.0)
+             .sink(receiveValue: { availableSpace in
+                 print("当前磁盘剩余空间：\(availableSpace) GB")
+             })
+         ```
+         */
+    public static func getAvailableDiskSpacePublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
+        return Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()  // 启动计时器
+            .map { _ in
+                return getAvailableDiskSpaceInGB() ?? 0  // 获取磁盘剩余空间，如果失败则返回 0
+            }
+            .eraseToAnyPublisher()
+    }
+
+    /// 获取 macOS 磁盘剩余空间（单位：GB）
+    private static func getAvailableDiskSpaceInGB() -> Int? {
+        _ = FileManager.default
+        
+        // 获取根目录路径（也可以替换为其他目录）
+        let path = URL(fileURLWithPath: "/")
+        
+        do {
+            // 获取文件系统资源信息
+            let values = try path.resourceValues(forKeys: [.volumeAvailableCapacityKey, .volumeTotalCapacityKey])
+            
+            // 将字节转换为 GB（1 GB = 1024 * 1024 * 1024 bytes）
+            if let availableCapacity = values.volumeAvailableCapacity {
+                return Int(availableCapacity / (1024 * 1024 * 1024))  // 转换为 GB
+            } else {
+                return nil  // 如果获取不到可用容量，返回 nil
+            }
+        } catch {
+            print("无法获取磁盘信息: \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
