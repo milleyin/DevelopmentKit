@@ -213,8 +213,10 @@ extension DevelopmentKit.SysInfo {
     /**
      获取当前 macOS 系统的内存使用信息，包括总内存、空闲内存、已使用内存与可回收内存（Inactive Memory）。
      
-     - Important: 本方法为一次性异步采样，使用 Combine 的 `Future` 实现，非持续监测。
-     数据单位为 **GB（四舍五入至小数点后两位）**，方便用于 UI 显示或存储记录。
+     - Important:
+     - interval == 0 时，一次性返回当前内存信息，非持续监测。
+     - interval > 0 时，定时通过 Timer.publish 推送内存状态；
+     - 数据单位为 **GB（四舍五入至小数点后两位）**，方便用于 UI 显示或存储记录。
      
      - Note:
      - 本方法通过 `host_statistics64()` 获取内存页数据，并结合 `sysctl` 获取总内存大小。
@@ -237,9 +239,9 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getMemoryInfoPublisher() -> AnyPublisher<MacMemoryInfo, Swift.Error> {
-        let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
-        return Future<MacMemoryInfo, Swift.Error> { promise in
+    public static func getMemoryInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacMemoryInfo, Swift.Error> {
+        func readMemoryInfo() -> MacMemoryInfo? {
+            let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
             var stats = vm_statistics64()
             var count = mach_msg_type_number_t(HOST_VM_INFO64_COUNT)
             let result = withUnsafeMutablePointer(to: &stats) {
@@ -248,10 +250,7 @@ extension DevelopmentKit.SysInfo {
                 }
             }
             
-            if result != KERN_SUCCESS {
-                promise(.failure(NSError(domain: "MemoryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取内存信息"])))
-                return
-            }
+            guard result == KERN_SUCCESS else { return nil }
             
             // 获取总内存
             var totalMemory: UInt64 = 0
@@ -268,16 +267,32 @@ extension DevelopmentKit.SysInfo {
                 return (bytes / 1_073_741_824).rounded(toPlaces: 2)
             }
             
-            let info = MacMemoryInfo(
+            return MacMemoryInfo(
                 total: toGB(total),
                 free: toGB(free),
                 used: toGB(used),
                 inactive: toGB(inactive)
             )
-            
-            promise(.success(info))
         }
-        .eraseToAnyPublisher()
+        
+        if interval <= 0 {
+            return Future<MacMemoryInfo, Swift.Error> { promise in
+                if let info = readMemoryInfo() {
+                    promise(.success(info))
+                } else {
+                    promise(.failure(NSError(domain: "MemoryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取内存信息"])))
+                }
+            }
+            .eraseToAnyPublisher()
+        } else {
+            return Timer.publish(every: interval, on: .main, in: .common)
+                .autoconnect()
+                .compactMap { _ in
+                    readMemoryInfo()
+                }
+                .setFailureType(to: Swift.Error.self)
+                .eraseToAnyPublisher()
+        }
     }
 }
 
@@ -286,8 +301,9 @@ extension DevelopmentKit.SysInfo {
     /**
      获取当前 macOS 系统的 CPU 信息，包括型号、核心数、总体使用率及每个核心使用率。
      
-     - Important: 本方法为一次性异步采样，使用 Combine 的 `Future` 实现，不会持续监测。
-     如需实现定时采样，请在上层使用 `Timer.publish(...).autoconnect()` 搭配调用本方法。
+     - Important: 本方法支持一次性采样与定时采样两种模式，调用方可通过 `interval` 参数控制行为：
+     - 若 `interval == 0`，将仅采样一次（结果为历史累计快照，非实时占用率）；
+     - 若 `interval > 0`，则每隔指定时间推送一次“当前 CPU 活动占用率”（基于差值计算）。
      
      - Note: 使用率的计算基于 `host_processor_info()` 返回的数据，结果单位为百分比（%）。
      每个核心的使用率包含用户态、系统态及 nice 态之和，不区分线程类型。
@@ -309,65 +325,180 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getCPUInfoPublisher() -> AnyPublisher<MacCPUInfo, Error> {
-        Future<MacCPUInfo, Error> { promise in
-            // 型号 / 名称
+    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, Error> {
+        struct Snapshot {
+            let coreCount: Int
+            let values: [Double]
+        }
+
+        func readCPUTicks() -> Snapshot? {
+            var cpuCount: natural_t = 0
+            var cpuInfo: processor_info_array_t?
+            var numCPUInfo: mach_msg_type_number_t = 0
+
+            let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
+            guard result == KERN_SUCCESS, let info = cpuInfo else { return nil }
+
+            var values: [Double] = []
+            for i in 0..<Int(cpuCount) {
+                let base = Int(CPU_STATE_MAX) * i
+                for j in 0..<Int(CPU_STATE_MAX) {
+                    values.append(Double(info[base + j]))
+                }
+            }
+
+            return Snapshot(coreCount: Int(cpuCount), values: values)
+        }
+
+        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double]) {
+            var totalUsed: Double = 0
+            var totalAll: Double = 0
+            var coreUsages: [Double] = []
+
+            for i in 0..<prev.coreCount {
+                let base = i * Int(CPU_STATE_MAX)
+                let userDiff = current.values[base + Int(CPU_STATE_USER)] - prev.values[base + Int(CPU_STATE_USER)]
+                let systemDiff = current.values[base + Int(CPU_STATE_SYSTEM)] - prev.values[base + Int(CPU_STATE_SYSTEM)]
+                let idleDiff = current.values[base + Int(CPU_STATE_IDLE)] - prev.values[base + Int(CPU_STATE_IDLE)]
+                let niceDiff = current.values[base + Int(CPU_STATE_NICE)] - prev.values[base + Int(CPU_STATE_NICE)]
+
+                let used = userDiff + systemDiff + niceDiff
+                let total = used + idleDiff
+
+                coreUsages.append((used / total) * 100)
+                totalUsed += used
+                totalAll += total
+            }
+
+            return ((totalUsed / totalAll) * 100, coreUsages)
+        }
+
+        func readStaticInfo() -> (model: String, physical: Int, logical: Int) {
             var modelBuffer = [CChar](repeating: 0, count: 256)
             var size = modelBuffer.count
             sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
             let model = String(cString: modelBuffer)
-            
-            // 核心数
+
             var physicalCores: Int32 = 0
             var logicalCores: Int32 = 0
             size = MemoryLayout.size(ofValue: physicalCores)
             sysctlbyname("hw.physicalcpu", &physicalCores, &size, nil, 0)
             sysctlbyname("hw.logicalcpu", &logicalCores, &size, nil, 0)
-            
-            // 使用率
-            var cpuCount: natural_t = 0
-            var cpuInfo: processor_info_array_t?
-            var numCPUInfo: mach_msg_type_number_t = 0
-            let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
-            
-            guard result == KERN_SUCCESS, let info = cpuInfo else {
-                promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 使用率"])))
-                return
-            }
-            
-            var coreUsages: [Double] = []
-            var totalUsed: Double = 0
-            var totalIdle: Double = 0
-            
-            for i in 0..<Int(cpuCount) {
-                let stateCount = Int(CPU_STATE_MAX)
-                let base = stateCount * i
-                let user = Double(info[base + Int(CPU_STATE_USER)])
-                let system = Double(info[base + Int(CPU_STATE_SYSTEM)])
-                let idle = Double(info[base + Int(CPU_STATE_IDLE)])
-                let nice = Double(info[base + Int(CPU_STATE_NICE)])
-                
-                let total = user + system + idle + nice
-                let used = user + system + nice
-                let usagePercent = (used / total) * 100
-                
-                coreUsages.append(usagePercent)
-                totalUsed += used
-                totalIdle += idle
-            }
-            
-            let totalAll = totalUsed + totalIdle
-            let infoStruct = MacCPUInfo(
-                model: model,
-                physicalCores: Int(physicalCores),
-                logicalCores: Int(logicalCores),
-                totalUsage: (totalUsed / totalAll) * 100,
-                totalIdle: (totalIdle / totalAll) * 100,
-                coreUsages: coreUsages
-            )
-            
-            promise(.success(infoStruct))
+
+            return (model, Int(physicalCores), Int(logicalCores))
         }
-        .eraseToAnyPublisher()
+
+        if interval <= 0 {
+            return Future<MacCPUInfo, Error> { promise in
+                let (model, physical, logical) = readStaticInfo()
+                guard let snapshot = readCPUTicks() else {
+                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 状态"])))
+                    return
+                }
+
+                var coreUsages: [Double] = []
+                for i in 0..<snapshot.coreCount {
+                    let base = i * Int(CPU_STATE_MAX)
+                    let user = snapshot.values[base + Int(CPU_STATE_USER)]
+                    let system = snapshot.values[base + Int(CPU_STATE_SYSTEM)]
+                    let idle = snapshot.values[base + Int(CPU_STATE_IDLE)]
+                    let nice = snapshot.values[base + Int(CPU_STATE_NICE)]
+
+                    let used = user + system + nice
+                    let total = used + idle
+                    let percent = (used / total) * 100
+                    coreUsages.append(percent)
+                }
+
+                let totalUsage = coreUsages.reduce(0, +) / Double(snapshot.coreCount)
+                let totalIdle = 100.0 - totalUsage
+
+                promise(.success(MacCPUInfo(
+                    model: model,
+                    physicalCores: physical,
+                    logicalCores: logical,
+                    totalUsage: totalUsage,
+                    totalIdle: totalIdle,
+                    coreUsages: coreUsages
+                )))
+            }
+            .eraseToAnyPublisher()
+        } else {
+            let (model, physical, logical) = readStaticInfo()
+            var previous: Snapshot? = nil
+
+            return Timer.publish(every: interval, on: .main, in: .common)
+                .autoconnect()
+                .compactMap { _ in
+                    guard let current = readCPUTicks() else { return nil }
+                    defer { previous = current }
+                    guard let prev = previous else { return nil }
+                    let (total, perCore) = calculateUsage(prev: prev, current: current)
+
+                    return MacCPUInfo(
+                        model: model,
+                        physicalCores: physical,
+                        logicalCores: logical,
+                        totalUsage: total,
+                        totalIdle: 100 - total,
+                        coreUsages: perCore
+                    )
+                }
+                .setFailureType(to: Error.self)
+                .eraseToAnyPublisher()
+        }
+    }
+
+}
+
+//MARK: - 磁盘容量信息接口
+extension DevelopmentKit.SysInfo {
+
+    /**
+         获取 macOS 磁盘剩余空间（单位：GB），并定时更新。
+         
+         - Important: 该方法使用定时器每隔 `interval` 秒获取一次磁盘剩余空间。返回的结果为一个 `AnyPublisher`，可以通过订阅来接收更新。
+         - Attention: 该方法返回值为磁盘剩余空间的 GB 数值，如果无法获取到磁盘信息，返回 0。
+         - Parameter interval: 获取磁盘剩余空间的时间间隔，默认为 1 秒。
+         - Returns: `AnyPublisher<Int, Never>`，返回的发布者会定时发布磁盘剩余空间的更新值。
+         
+         示例：
+         ```swift
+         DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 2.0)
+             .sink(receiveValue: { availableSpace in
+                 print("当前磁盘剩余空间：\(availableSpace) GB")
+             })
+         ```
+         */
+    public static func getAvailableDiskSpacePublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
+        return Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()  // 启动计时器
+            .map { _ in
+                return getAvailableDiskSpaceInGB() ?? 0  // 获取磁盘剩余空间，如果失败则返回 0
+            }
+            .eraseToAnyPublisher()
+    }
+
+    /// 获取 macOS 磁盘剩余空间（单位：GB）
+    private static func getAvailableDiskSpaceInGB() -> Int? {
+        _ = FileManager.default
+        
+        // 获取根目录路径（也可以替换为其他目录）
+        let path = URL(fileURLWithPath: "/")
+        
+        do {
+            // 获取文件系统资源信息
+            let values = try path.resourceValues(forKeys: [.volumeAvailableCapacityKey, .volumeTotalCapacityKey])
+            
+            // 将字节转换为 GB（1 GB = 1024 * 1024 * 1024 bytes）
+            if let availableCapacity = values.volumeAvailableCapacity {
+                return Int(availableCapacity / (1024 * 1024 * 1024))  // 转换为 GB
+            } else {
+                return nil  // 如果获取不到可用容量，返回 nil
+            }
+        } catch {
+            print("无法获取磁盘信息: \(error.localizedDescription)")
+            return nil
+        }
     }
 }

@@ -304,7 +304,7 @@ class SystemInfoTests: XCTestCase {
     func testGetCPUInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 CPU 信息")
         
-        DevelopmentKit.SysInfo.getCPUInfoPublisher()
+        DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 1)
             .sink { completion in
                 if case .failure(let error) = completion {
                     XCTFail("获取 CPU 信息失败：\(error)")
@@ -331,6 +331,30 @@ class SystemInfoTests: XCTestCase {
             .store(in: &subscriptions)
         
         wait(for: [expectation], timeout: 2.0)
+    }
+    
+    // 测试获取 macOS 磁盘剩余空间的功能
+    func testGetAvailableDiskSpacePublisher() {
+        let expectation = XCTestExpectation(description: "获取 macOS 磁盘剩余空间")
+        
+        // 调用获取磁盘剩余空间的接口
+        DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 1.0)
+            .sink(receiveCompletion: { completion in
+                switch completion {
+                case .failure(let error):
+                    XCTFail("获取磁盘剩余空间失败：\(error.localizedDescription)")
+                case .finished:
+                    break
+                }
+            }, receiveValue: { availableSpace in
+                print("剩余磁盘空间：\(availableSpace) GB")
+                XCTAssertGreaterThanOrEqual(availableSpace, 0)  // 验证磁盘剩余空间大于或等于 0 GB
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+        
+        // 设置超时时间
+        wait(for: [expectation], timeout: 3.0)
     }
     
 #endif

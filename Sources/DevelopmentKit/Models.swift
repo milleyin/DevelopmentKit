@@ -56,13 +56,13 @@ public struct SystemNetworkThroughput {
 /// 电池信息结构体
 public struct MacBatteryInfo {
     /// 电池电量百分比
-    var level: Int
+    public var level: Int
     /// 最大电池容量
-    var maxCapacity: Int
+    public var maxCapacity: Int
     ///充电状态
-    var isCharging: Bool
+    public var isCharging: Bool
     /// 电池温度 (单位：摄氏度)
-    var temperature: Double
+    public var temperature: Double
     /// 循环次数
     public var cycleCount: Int
     
