@@ -6,7 +6,12 @@
 //
 
 import Foundation
+import SwiftUI
 import AppKit
+#if os(macOS) || targetEnvironment(macCatalyst)
+import ServiceManagement
+import os.log
+#endif
 
 extension DevelopmentKit.Utilities {
     /**
@@ -258,3 +263,134 @@ extension DevelopmentKit.Utilities {
     }
 #endif
 }
+
+#if os(macOS) || targetEnvironment(macCatalyst)
+
+public enum LaunchAtLogin {
+    private static let logger = Logger(subsystem: "com.sindresorhus.LaunchAtLogin", category: "main")
+    fileprivate static let observable = Observable()
+
+    /**
+     为你的应用程序切换 “登录时启动 ”或检查是否启用。
+    */
+    public static var isEnabled: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            observable.objectWillChange.send()
+
+            do {
+                if newValue {
+                    if SMAppService.mainApp.status == .enabled {
+                        try? SMAppService.mainApp.unregister()
+                    }
+
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                logger.error("Failed to \(newValue ? "enable" : "disable") launch at login: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /**
+     应用程序是否在登录时启动。
+
+    - Important: 此属性只能在 `NSApplicationDelegate#applicationDidFinishLaunching`中选中。
+    */
+    public static var wasLaunchedAtLogin: Bool {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        return event?.eventID == kAEOpenApplication
+            && event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
+}
+
+extension LaunchAtLogin {
+    final class Observable: ObservableObject {
+        var isEnabled: Bool {
+            get { LaunchAtLogin.isEnabled }
+            set {
+                LaunchAtLogin.isEnabled = newValue
+            }
+        }
+    }
+}
+
+extension LaunchAtLogin {
+    /**
+     该软件包附带一个 `LaunchAtLogin.Toggle` 视图，它与内置的 `Toggle` 视图类似，但具有预定义的绑定和标签。点击该视图可切换应用程序的 “登录时启动”。
+
+    ```
+    struct ContentView: View {
+        var body: some View {
+            LaunchAtLogin.Toggle()
+        }
+    }
+    ```
+
+     默认标签为 “登录时启动”，但可根据本地化和其他需要进行重写：
+
+    ```
+    struct ContentView: View {
+        var body: some View {
+            LaunchAtLogin.Toggle {
+                Text("Launch at login")
+            }
+        }
+    }
+    ```
+    */
+    public struct Toggle<Label: View>: View {
+        @ObservedObject private var launchAtLogin = LaunchAtLogin.observable
+        private let label: Label
+
+        /**
+         创建显示自定义标签的切换按钮。
+
+        - Parameters:
+            - label: 描述切换目的的视图。
+        */
+        public init(@ViewBuilder label: () -> Label) {
+            self.label = label()
+        }
+
+        public var body: some View {
+            SwiftUI.Toggle(isOn: $launchAtLogin.isEnabled) { label }
+        }
+    }
+}
+
+extension LaunchAtLogin.Toggle<Text> {
+    /**
+     创建根据本地化字符串键生成标签的切换开关。
+
+     该初始化程序会使用提供的 `titleKey` 代您创建一个 ``Text`` 视图。
+
+    - Parameters:
+        - titleKey: 切换按钮本地化标题的键值，用于描述切换按钮的用途。
+    */
+    public init(_ titleKey: LocalizedStringKey) {
+        label = Text(titleKey)
+    }
+
+    /**
+    创建一个可从字符串生成标签的切换视图。
+
+    该初始化程序会使用提供的 “title ”为您创建一个 “Text ”视图。
+
+    - Parameters:
+        - title: 描述切换目的的字符串。
+    */
+    public init(_ title: some StringProtocol) {
+        label = Text(title)
+    }
+
+    /**
+     创建一个切换按钮，默认标题为 “登录时启动”。
+    */
+    public init() {
+        self.init("Launch at login")
+    }
+}
+#endif
