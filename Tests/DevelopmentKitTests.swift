@@ -63,11 +63,11 @@ class DevelopmentKitTests: XCTestCase {
 #endif
     }
     
-
     
-
     
-
+    
+    
+    
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
@@ -140,6 +140,30 @@ class DevelopmentKitTests: XCTestCase {
         XCTAssertFalse(hash.isEmpty, "SHA-256 结果不应为空")
     }
     
+    ///测试开机启动
+    func testToggleLaunchAtLogin() {
+        // 先记录当前状态，测试完再还原，避免影响系统设置
+        let originalStatus = LaunchAtLogin.isEnabled
+        
+        // 切换状态
+        let newStatus = !originalStatus
+        LaunchAtLogin.isEnabled = newStatus
+        
+        // 验证状态是否被修改
+        XCTAssertEqual(LaunchAtLogin.isEnabled, newStatus, "LaunchAtLogin 状态未被正确修改")
+        
+        // 测试 observable 是否同步
+        let observable = LaunchAtLogin.Observable()
+        XCTAssertEqual(observable.isEnabled, newStatus, "Observable 状态未同步")
+        
+        // 恢复原状态
+        LaunchAtLogin.isEnabled = originalStatus
+    }
+    
+    func testWasLaunchedAtLoginSafety() {
+        // 不能确定一定是在登录启动时运行，所以这里只能测试调用不会崩溃
+        _ = LaunchAtLogin.wasLaunchedAtLogin
+    }
 }
 
 // MARK: - 网络测试
