@@ -364,9 +364,7 @@ extension DevelopmentKit.SysInfo {
         }
 
         func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double])? {
-            guard prev.coreCount == current.coreCount else {
-                return nil
-            }
+            guard prev.coreCount == current.coreCount else { return nil }
 
             var totalUsed: Double = 0
             var totalAll: Double = 0
@@ -451,10 +449,12 @@ extension DevelopmentKit.SysInfo {
                     guard let current = readCPUTicks() else {
                         throw SysInfoError.cpuSnapshotFailed
                     }
-                    defer { previous = current }
                     guard let prev = previous else {
+                        previous = current
                         throw SysInfoError.cpuSnapshotFailed
                     }
+                    defer { previous = current }
+
                     guard let (total, perCore) = calculateUsage(prev: prev, current: current) else {
                         throw SysInfoError.cpuCalculationFailed
                     }
