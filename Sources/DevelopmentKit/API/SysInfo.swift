@@ -352,6 +352,12 @@ extension DevelopmentKit.SysInfo {
             let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
             guard result == KERN_SUCCESS, let info = cpuInfo else { return nil }
 
+            // ✅ 避免内存泄漏（Apple 明确要求手动释放）
+            defer {
+                let size = Int(numCPUInfo) * MemoryLayout<integer_t>.size
+                vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info), vm_size_t(size))
+            }
+
             var values: [Double] = []
             for i in 0..<Int(cpuCount) {
                 let base = Int(CPU_STATE_MAX) * i
