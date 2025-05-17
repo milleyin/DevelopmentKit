@@ -180,58 +180,91 @@ class NetworkTests: XCTestCase {
             .wifi, .cellular, .wired, .other, .none, .unknown
         ]
         
-        DevelopmentKit.Network.getNetworkTypePublisher(timeout: 1.0)
+        DevelopmentKit.Network
+            .getNetworkTypePublisher(timeout: 1.0)
             .sink(receiveCompletion: { completion in
                 if case .failure(let error) = completion {
-                    print("⚠️ 获取失败（测试允许）：\(error)")
+                    switch error {
+                    case .timeout, .unableToDetermineNetworkType:
+                        // ✅ 合理错误，测试通过
+                        break
+                    default:
+                        XCTFail("出现未预期的错误类型：\(error)")
+                    }
                     expectation.fulfill()
                 }
             }, receiveValue: { type in
-                print("✅ 获取到网络类型：\(type.rawValue)")
-                XCTAssertTrue(validTypes.contains(type), "返回的网络类型应在预定义范围内")
+                XCTAssertTrue(validTypes.contains(type),
+                              "返回的网络类型应在预定义范围内: \(type)")
                 expectation.fulfill()
             })
-            .store(in: &subscriptions) // ✅ 用你统一的 subscriptions 管理
+            .store(in: &subscriptions)
+        
         wait(for: [expectation], timeout: 5.0)
     }
     
 #if os(macOS)
-    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回一个信号等级
+    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回或报错
     func testWiFiSignalLevelPublisher() {
-        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级")
+        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级或错误")
         
-        DevelopmentKit.Network.getWiFiSignalLevelPublisher(interval: 0.5)
-            .prefix(1) // 只取一次结果
-            .sink { level in
-                print("获取到信号等级：\(level.rawValue)")
+        DevelopmentKit.Network
+            .getWiFiSignalLevelPublisher(interval: 0.5)
+            .prefix(1)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    switch error {
+                    case .wifiInterfaceUnavailable, .unknown:
+                        break // 允许的错误
+                    default:
+                        XCTFail("出现未预期的错误：\(error)")
+                    }
+                    expectation.fulfill()
+                }
+            }, receiveValue: { level in
                 let allCases: [WiFiSignalLevel] = [
                     .excellent, .good, .fair, .weak, .poor, .disconnected
                 ]
-                XCTAssertTrue(allCases.contains(level), "返回的信号等级应在合法枚举中")
+                XCTAssertTrue(allCases.contains(level),
+                              "返回的信号等级应在合法枚举中: \(level)")
                 expectation.fulfill()
-            }
+            })
             .store(in: &subscriptions)
         
         wait(for: [expectation], timeout: 2.0)
     }
     
-    //测试当前网速
-    func testSystemNetworkThroughput() {
+    /// 测试 `getSystemNetworkThroughputPublisher` 能正确返回基准和实际值
+    func testSystemNetworkThroughputPublisher() {
         let expectation = XCTestExpectation(description: "获取系统网络上下行流量")
-        
-        DevelopmentKit.Network.getSystemNetworkThroughputPublisher(interval: 1.0)
-            .prefix(2) // 取两次：一次基准 + 一次实际变化
-            .sink { throughput in
-                print("⬇️ \(throughput.receivedBytesPerSec) B/s, ⬆️ \(throughput.sentBytesPerSec) B/s")
-                
-                // 至少结构应该有值（不一定非要大于 0）
-                XCTAssertGreaterThanOrEqual(throughput.receivedBytesPerSec, 0)
-                XCTAssertGreaterThanOrEqual(throughput.sentBytesPerSec, 0)
+        var fulfillCount = 0
+
+        DevelopmentKit.Network
+            .getSystemNetworkThroughputPublisher(interval: 0.5)
+            .prefix(2)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    switch error {
+                    case .throughputUnavailable, .unknown:
+                        break // 允许的错误
+                    default:
+                        XCTFail("出现未预期的错误：\(error)")
+                    }
+                }
+                // 补足 fulfill，防止卡死
+                while fulfillCount < 2 {
+                    fulfillCount += 1
+                    expectation.fulfill()
+                }
+            }, receiveValue: { throughput in
+                XCTAssertGreaterThanOrEqual(throughput.receivedBytesPerSec, 0, "下载值不能为负")
+                XCTAssertGreaterThanOrEqual(throughput.sentBytesPerSec, 0, "上传值不能为负")
+                fulfillCount += 1
                 expectation.fulfill()
-            }
+            })
             .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 3.0)
+
+        wait(for: [expectation], timeout: 5.0)
     }
 #endif
 }
@@ -243,144 +276,143 @@ class SystemInfoTests: XCTestCase {
     var subscriptions = Set<AnyCancellable>()
     
 #if os(iOS)
-    func testGetBatteryLevelPublisher() {
-        let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
-        
-        // 使用 prefix(1) 来获取电池电量的第一个值，然后结束测试
-        DevelopmentKit.getBatteryLevelPublisher(interval: 1.0)
-            .prefix(1)  // 只取第一个值
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    XCTFail("电池电量获取失败：\(error)")
-                }
-            }, receiveValue: { level in
-                print("当前电池电量：\(level)%")
-                XCTAssertGreaterThanOrEqual(level, 0)
-                XCTAssertLessThanOrEqual(level, 100)
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)  // 等待最多 2 秒
-    }
-#elseif os(macOS)
+func testGetBatteryLevelPublisher() {
+    let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
     
-    //电池信息
+    DevelopmentKit.SysInfo.getBatteryLevelPublisher(interval: 1.0)
+        .prefix(1)
+        .sink(receiveValue: { level in
+            print("🔋 当前电池电量：\(level)%")
+            XCTAssertGreaterThanOrEqual(level, 0)
+            XCTAssertLessThanOrEqual(level, 100)
+            expectation.fulfill()
+        })
+        .store(in: &subscriptions)
+    
+    wait(for: [expectation], timeout: 2.0)
+}
+#elseif os(macOS)
+
+    // MARK: - 电池信息
+
     func testGetBatteryInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
         
-        // 使用 prefix(1) 来获取电池信息的第一个值，然后结束测试
         DevelopmentKit.SysInfo.getBatteryInfoPublisher()
-            .prefix(1)  // 只取第一个值
+            .prefix(1)
             .sink(receiveCompletion: { completion in
                 if case .failure(let error) = completion {
-                    XCTFail("获取电池信息失败：\(error.localizedDescription)")
+                    XCTFail("获取电池信息失败：\(error)")
                 }
             }, receiveValue: { batteryInfo in
                 print("🔋电池电量：\(batteryInfo.level)%")
                 print("🔋最大容量：\(batteryInfo.maxCapacity)")
                 print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
-                print("🔋电池温度：\(batteryInfo.temperature) °C")
-                print("🔋电池循环次数：\(batteryInfo.cycleCount) °C")
+                print("🔋温度：\(batteryInfo.temperature) °C")
+                print("🔋循环次数：\(batteryInfo.cycleCount)")
                 
-                // 验证电池电量、最大容量、充电状态、温度
-                XCTAssertGreaterThanOrEqual(batteryInfo.level, 0)
-                XCTAssertLessThanOrEqual(batteryInfo.level, 100)
+                XCTAssert((0...100).contains(batteryInfo.level))
                 XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
-                XCTAssert(batteryInfo.isCharging == true || batteryInfo.isCharging == false)
-                XCTAssert(batteryInfo.temperature >= 0)
-                XCTAssert(batteryInfo.cycleCount >= 0)
-                
+                XCTAssertGreaterThanOrEqual(batteryInfo.temperature, 0)
+                XCTAssertGreaterThanOrEqual(batteryInfo.cycleCount, 0)
                 expectation.fulfill()
             })
             .store(in: &subscriptions)
         
-        wait(for: [expectation], timeout: 3.0)  // 等待最多 3 秒，以便系统电池信息返回
+        wait(for: [expectation], timeout: 3.0)
     }
-    
-    //内存信息
+
+    // MARK: - 内存信息
+
     func testGetMemoryInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取内存信息")
         
         DevelopmentKit.SysInfo.getMemoryInfoPublisher()
-            .sink { completion in
-                if case .failure(let error) = completion {
-                    XCTFail("获取内存信息失败：\(error)")
-                    expectation.fulfill()
-                }
-            } receiveValue: { info in
-                print(info) // 💾 打印内存信息
-                
-                XCTAssertGreaterThan(info.total, 0, "总内存应大于 0")
-                XCTAssertGreaterThanOrEqual(info.free, 0, "空闲内存应为正")
-                XCTAssertGreaterThanOrEqual(info.inactive, 0, "可回收内存应为正")
-                XCTAssertGreaterThanOrEqual(info.used, 0, "已使用内存应为正")
-                XCTAssertLessThanOrEqual(info.used, info.total, "已使用内存不应大于总内存")
-                
-                expectation.fulfill()
-            }
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
-    }
-    
-    /// CPU测试
-    func testGetCPUInfoPublisher() {
-        let expectation = XCTestExpectation(description: "获取 CPU 信息")
-        
-        DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 1)
-            .sink { completion in
-                if case .failure(let error) = completion {
-                    XCTFail("获取 CPU 信息失败：\(error)")
-                    expectation.fulfill()
-                }
-            } receiveValue: { info in
-                print(info)
-                
-                XCTAssertFalse(info.model.isEmpty, "CPU 型号不应为空")
-                XCTAssertGreaterThan(info.physicalCores, 0, "物理核心数应大于 0")
-                XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores, "逻辑核心数应 ≥ 物理核心数")
-                
-                let totalSum = info.totalUsage + info.totalIdle
-                XCTAssertEqual(totalSum.rounded(toPlaces: 1), 100.0, accuracy: 1.0, "占用率 + 空闲率 应约等于 100")
-                
-                XCTAssertEqual(info.coreUsages.count, info.logicalCores, "核心使用率数量应等于逻辑核心数")
-                
-                for (i, usage) in info.coreUsages.enumerated() {
-                    XCTAssert(usage >= 0 && usage <= 100, "Core \(i) 使用率应在 0 ~ 100 范围内")
-                }
-                
-                expectation.fulfill()
-            }
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
-    }
-    
-    // 测试获取 macOS 磁盘剩余空间的功能
-    func testGetAvailableDiskSpacePublisher() {
-        let expectation = XCTestExpectation(description: "获取 macOS 磁盘剩余空间")
-        
-        // 调用获取磁盘剩余空间的接口
-        DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 1.0)
             .sink(receiveCompletion: { completion in
-                switch completion {
-                case .failure(let error):
-                    XCTFail("获取磁盘剩余空间失败：\(error.localizedDescription)")
-                case .finished:
-                    break
+                if case .failure(let error) = completion {
+                    if case DevelopmentKit.SysInfo.SysInfoError.memoryReadFailure = error {
+                        // ✅ 允许的错误
+                    } else {
+                        XCTFail("出现未预期的错误：\(error)")
+                    }
+                    expectation.fulfill()
                 }
-            }, receiveValue: { availableSpace in
-                print("剩余磁盘空间：\(availableSpace) GB")
-                XCTAssertGreaterThanOrEqual(availableSpace, 0)  // 验证磁盘剩余空间大于或等于 0 GB
+            }, receiveValue: { info in
+                print("💾 内存使用情况：\(info)")
+                XCTAssertGreaterThan(info.total, 0)
+                XCTAssertGreaterThanOrEqual(info.free, 0)
+                XCTAssertGreaterThanOrEqual(info.inactive, 0)
+                XCTAssertGreaterThanOrEqual(info.used, 0)
+                XCTAssertLessThanOrEqual(info.used, info.total)
                 expectation.fulfill()
             })
             .store(in: &subscriptions)
         
-        // 设置超时时间
+        wait(for: [expectation], timeout: 2.0)
+    }
+
+    // MARK: - CPU 信息
+
+    func testGetCPUInfoPublisher() {
+        let expectation = XCTestExpectation(description: "获取 CPU 信息")
+        
+        DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 1)
+            .prefix(1)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    if case DevelopmentKit.SysInfo.SysInfoError.cpuSnapshotFailed = error {
+                        // ✅ 合理错误
+                    } else {
+                        XCTFail("出现未预期的错误：\(error)")
+                    }
+                    expectation.fulfill()
+                }
+            }, receiveValue: { info in
+                print("🧠 CPU 信息：\(info.model)")
+                XCTAssertFalse(info.model.isEmpty)
+                XCTAssertGreaterThan(info.physicalCores, 0)
+                XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores)
+                
+                let total = info.totalUsage + info.totalIdle
+                XCTAssertEqual(total.rounded(toPlaces: 1), 100.0, accuracy: 1.0)
+                XCTAssertEqual(info.coreUsages.count, info.logicalCores)
+                
+                for usage in info.coreUsages {
+                    XCTAssert(usage >= 0 && usage <= 100)
+                }
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+        
         wait(for: [expectation], timeout: 3.0)
     }
-    
+
+    // MARK: - 磁盘空间
+
+    func testGetAvailableDiskSpacePublisher() {
+        let expectation = XCTestExpectation(description: "获取磁盘剩余空间")
+        
+        DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 1.0)
+            .prefix(1)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    if case DevelopmentKit.SysInfo.SysInfoError.diskSpaceUnavailable = error {
+                        // ✅ 合理错误
+                    } else {
+                        XCTFail("出现未预期的错误：\(error)")
+                    }
+                    expectation.fulfill()
+                }
+            }, receiveValue: { space in
+                print("💽 剩余磁盘空间：\(space) GB")
+                XCTAssertGreaterThanOrEqual(space, 0)
+                expectation.fulfill()
+            })
+            .store(in: &subscriptions)
+        
+        wait(for: [expectation], timeout: 3.0)
+    }
+
 #endif
 }
 

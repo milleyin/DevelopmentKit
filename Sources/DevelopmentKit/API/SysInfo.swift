@@ -43,15 +43,21 @@ extension DevelopmentKit.SysInfo {
          .store(in: &cancellables)
      ```
      */
-    public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
-        // 确保设备支持电池监测
+    public static func getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, SysInfoError> {
+        // 启用电池监控
         UIDevice.current.isBatteryMonitoringEnabled = true
-        
-        // 每隔 interval 秒获取一次电池电量
+
         return Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()  // 启动计时器
-            .map { _ in
-                Int(UIDevice.current.batteryLevel * 100)  // 返回百分比
+            .autoconnect()
+            .tryMap { _ in
+                let level = UIDevice.current.batteryLevel
+                if level < 0 {
+                    throw SysInfoError.batteryUnavailable
+                }
+                return Int(level * 100)
+            }
+            .mapError { error in
+                (error as? SysInfoError) ?? .unknown(error)
             }
             .eraseToAnyPublisher()
     }
@@ -86,21 +92,21 @@ extension DevelopmentKit.SysInfo {
          .store(in: &cancellables)
      ```
      */
-    public static func getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, Swift.Error> {
+    public static func getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, SysInfoError> {
         return Future { promise in
             var service: io_service_t = 0
             
             // 打开电池服务
             let openResult = openBatteryService(&service)
             if openResult != kIOReturnSuccess {
-                promise(.failure(NSError(domain: "BatteryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法打开电池服务"])))
+                promise(.failure(.batteryUnavailable))
                 return
             }
             
             // 获取电池信息
             let batteryInfo = getMacBatteryInfo()
             if batteryInfo.temperature == -1 {
-                promise(.failure(NSError(domain: "BatteryError", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取电池温度"])))
+                promise(.failure(.temperatureUnavailable))
             } else {
                 promise(.success(batteryInfo))
             }
@@ -239,8 +245,8 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getMemoryInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacMemoryInfo, Swift.Error> {
-        func readMemoryInfo() -> MacMemoryInfo? {
+    public static func getMemoryInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacMemoryInfo, SysInfoError> {
+        func readMemoryInfo() throws -> MacMemoryInfo {
             let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
             var stats = vm_statistics64()
             var count = mach_msg_type_number_t(HOST_VM_INFO64_COUNT)
@@ -250,7 +256,9 @@ extension DevelopmentKit.SysInfo {
                 }
             }
             
-            guard result == KERN_SUCCESS else { return nil }
+            guard result == KERN_SUCCESS else {
+                throw SysInfoError.memoryReadFailure
+            }
             
             // 获取总内存
             var totalMemory: UInt64 = 0
@@ -274,23 +282,28 @@ extension DevelopmentKit.SysInfo {
                 inactive: toGB(inactive)
             )
         }
-        
+
         if interval <= 0 {
-            return Future<MacMemoryInfo, Swift.Error> { promise in
-                if let info = readMemoryInfo() {
+            return Future<MacMemoryInfo, SysInfoError> { promise in
+                do {
+                    let info = try readMemoryInfo()
                     promise(.success(info))
-                } else {
-                    promise(.failure(NSError(domain: "MemoryError", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取内存信息"])))
+                } catch let error as SysInfoError {
+                    promise(.failure(error))
+                } catch {
+                    promise(.failure(.unknown(error)))
                 }
             }
             .eraseToAnyPublisher()
         } else {
             return Timer.publish(every: interval, on: .main, in: .common)
                 .autoconnect()
-                .compactMap { _ in
-                    readMemoryInfo()
+                .tryMap { _ in
+                    try readMemoryInfo()
                 }
-                .setFailureType(to: Swift.Error.self)
+                .mapError { error in
+                    (error as? SysInfoError) ?? .unknown(error)
+                }
                 .eraseToAnyPublisher()
         }
     }
@@ -325,7 +338,7 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, Error> {
+    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, SysInfoError> {
         struct Snapshot {
             let coreCount: Int
             let values: [Double]
@@ -350,7 +363,11 @@ extension DevelopmentKit.SysInfo {
             return Snapshot(coreCount: Int(cpuCount), values: values)
         }
 
-        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double]) {
+        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double])? {
+            guard prev.coreCount == current.coreCount else {
+                return nil
+            }
+
             var totalUsed: Double = 0
             var totalAll: Double = 0
             var coreUsages: [Double] = []
@@ -370,6 +387,7 @@ extension DevelopmentKit.SysInfo {
                 totalAll += total
             }
 
+            guard totalAll > 0 else { return nil }
             return ((totalUsed / totalAll) * 100, coreUsages)
         }
 
@@ -389,10 +407,10 @@ extension DevelopmentKit.SysInfo {
         }
 
         if interval <= 0 {
-            return Future<MacCPUInfo, Error> { promise in
+            return Future<MacCPUInfo, SysInfoError> { promise in
                 let (model, physical, logical) = readStaticInfo()
                 guard let snapshot = readCPUTicks() else {
-                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 状态"])))
+                    promise(.failure(.cpuSnapshotFailed))
                     return
                 }
 
@@ -429,11 +447,17 @@ extension DevelopmentKit.SysInfo {
 
             return Timer.publish(every: interval, on: .main, in: .common)
                 .autoconnect()
-                .compactMap { _ in
-                    guard let current = readCPUTicks() else { return nil }
+                .tryMap { _ in
+                    guard let current = readCPUTicks() else {
+                        throw SysInfoError.cpuSnapshotFailed
+                    }
                     defer { previous = current }
-                    guard let prev = previous else { return nil }
-                    let (total, perCore) = calculateUsage(prev: prev, current: current)
+                    guard let prev = previous else {
+                        throw SysInfoError.cpuSnapshotFailed
+                    }
+                    guard let (total, perCore) = calculateUsage(prev: prev, current: current) else {
+                        throw SysInfoError.cpuCalculationFailed
+                    }
 
                     return MacCPUInfo(
                         model: model,
@@ -444,7 +468,9 @@ extension DevelopmentKit.SysInfo {
                         coreUsages: perCore
                     )
                 }
-                .setFailureType(to: Error.self)
+                .mapError { error in
+                    (error as? SysInfoError) ?? .unknown(error)
+                }
                 .eraseToAnyPublisher()
         }
     }
@@ -470,11 +496,17 @@ extension DevelopmentKit.SysInfo {
              })
          ```
          */
-    public static func getAvailableDiskSpacePublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never> {
+    public static func getAvailableDiskSpacePublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, SysInfoError> {
         return Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()  // 启动计时器
-            .map { _ in
-                return getAvailableDiskSpaceInGB() ?? 0  // 获取磁盘剩余空间，如果失败则返回 0
+            .autoconnect()
+            .tryMap { _ in
+                guard let gb = getAvailableDiskSpaceInGB() else {
+                    throw SysInfoError.diskSpaceUnavailable
+                }
+                return gb
+            }
+            .mapError { error in
+                (error as? SysInfoError) ?? .unknown(error)
             }
             .eraseToAnyPublisher()
     }
