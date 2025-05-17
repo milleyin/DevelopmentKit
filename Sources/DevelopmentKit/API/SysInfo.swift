@@ -338,7 +338,7 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, SysInfoError> {
+    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, Error> {
         struct Snapshot {
             let coreCount: Int
             let values: [Double]
@@ -363,9 +363,7 @@ extension DevelopmentKit.SysInfo {
             return Snapshot(coreCount: Int(cpuCount), values: values)
         }
 
-        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double])? {
-            guard prev.coreCount == current.coreCount else { return nil }
-
+        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double]) {
             var totalUsed: Double = 0
             var totalAll: Double = 0
             var coreUsages: [Double] = []
@@ -385,7 +383,6 @@ extension DevelopmentKit.SysInfo {
                 totalAll += total
             }
 
-            guard totalAll > 0 else { return nil }
             return ((totalUsed / totalAll) * 100, coreUsages)
         }
 
@@ -405,10 +402,10 @@ extension DevelopmentKit.SysInfo {
         }
 
         if interval <= 0 {
-            return Future<MacCPUInfo, SysInfoError> { promise in
+            return Future<MacCPUInfo, Error> { promise in
                 let (model, physical, logical) = readStaticInfo()
                 guard let snapshot = readCPUTicks() else {
-                    promise(.failure(.cpuSnapshotFailed))
+                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 状态"])))
                     return
                 }
 
@@ -445,19 +442,11 @@ extension DevelopmentKit.SysInfo {
 
             return Timer.publish(every: interval, on: .main, in: .common)
                 .autoconnect()
-                .tryMap { _ in
-                    guard let current = readCPUTicks() else {
-                        throw SysInfoError.cpuSnapshotFailed
-                    }
-                    guard let prev = previous else {
-                        previous = current
-                        throw SysInfoError.cpuSnapshotFailed
-                    }
+                .compactMap { _ in
+                    guard let current = readCPUTicks() else { return nil }
                     defer { previous = current }
-
-                    guard let (total, perCore) = calculateUsage(prev: prev, current: current) else {
-                        throw SysInfoError.cpuCalculationFailed
-                    }
+                    guard let prev = previous else { return nil }
+                    let (total, perCore) = calculateUsage(prev: prev, current: current)
 
                     return MacCPUInfo(
                         model: model,
@@ -468,9 +457,7 @@ extension DevelopmentKit.SysInfo {
                         coreUsages: perCore
                     )
                 }
-                .mapError { error in
-                    (error as? SysInfoError) ?? .unknown(error)
-                }
+                .setFailureType(to: Error.self)
                 .eraseToAnyPublisher()
         }
     }
