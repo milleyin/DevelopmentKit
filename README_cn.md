@@ -52,6 +52,28 @@ Log("这是一条日志信息")
 ```
 
 ---
+## **开机启动（macOS）**
+
+### **功能概述**
+
+一键设置 App 随系统启动（支持 SwiftUI App）
+
+### **使用方法**
+
+```swift
+import DevelopmentKit
+
+LaunchAtLoginManager.shared.setEnabled(true)
+```
+
+**输出示例：**
+
+```
+let isEnabled = LaunchAtLoginManager.shared.isEnabled
+print("是否开机启动：\(isEnabled)")
+```
+
+---
 
 ## 🚀 其他功能示例
 
@@ -160,7 +182,8 @@ print("格式化日期: \(date.toYMDFormat())")
 | `DevelopmentKit.buildNumber: String` | 获取当前 App 编译版本号 |
 | `UIApplication.hideKeyboard()` | 隐藏键盘（发送 `resignFirstResponder` 事件） |
 | `Log<T>(_ message: T, file: String, line: Int)` | 在 Xcode 控制台打印日志，并在启用 CloudKit 后自动存储到 iCloud |
-
+| `LaunchAtLoginManager.shared.setEnabled(Bool)` | 启用/关闭 macOS App 开机启动 |
+| `LaunchAtLoginManager.shared.isEnabled: Bool` | 当前是否启用了开机启动 |
 ---
 
 ## 🚀 贡献指南
