@@ -7,8 +7,10 @@
 
 import Foundation
 import SwiftUI
+#if os(iOS)
+import SafariServices
+#elseif os(macOS) || targetEnvironment(macCatalyst)
 import AppKit
-#if os(macOS) || targetEnvironment(macCatalyst)
 import ServiceManagement
 import os.log
 #endif

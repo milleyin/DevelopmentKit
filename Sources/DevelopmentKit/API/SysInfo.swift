@@ -6,13 +6,16 @@
 //
 
 import Foundation
-import CoreWLAN
 import Combine
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import CoreWLAN
 import AppKit
 import IOKit
 import IOKit.ps
-import Darwin //NOTE: ifaddrs/if_data 等结构体来自 Darwin 系统库，无需 import，使用时只需 `import Darwin`
-
+// Darwin 可选导入，通常 Foundation 已经隐式包含
+#endif
 //MARK: - 电池信息接口
 extension DevelopmentKit.SysInfo {
 #if os(iOS)
@@ -209,8 +212,6 @@ extension DevelopmentKit.SysInfo {
         return count
     }
 #endif
-    
-    
 }
 
 //MARK: - 内存信息接口
