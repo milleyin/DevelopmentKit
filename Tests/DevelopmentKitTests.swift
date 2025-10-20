@@ -27,7 +27,7 @@ class DevelopmentKitTests: XCTestCase {
         let mailURL = URL(string: "message://")!
         let canOpen = UIApplication.shared.canOpenURL(mailURL)
         if canOpen {
-            DevelopmentKit.openMailApp()
+            DevelopmentKit.Utilities.openMailApp()
             XCTAssertTrue(true, "邮件应用打开成功")
         } else {
             XCTAssertFalse(canOpen, "无法打开邮件应用")
@@ -41,7 +41,7 @@ class DevelopmentKitTests: XCTestCase {
         let settingsURL = URL(string: UIApplication.openSettingsURLString)!
         let canOpen = UIApplication.shared.canOpenURL(settingsURL)
         if canOpen {
-            DevelopmentKit.openAppSettings()
+            DevelopmentKit.Utilities.openAppSettings()
             XCTAssertTrue(true, "成功打开 App 设置")
         } else {
             XCTAssertFalse(canOpen, "无法打开 App 设置")
@@ -55,10 +55,10 @@ class DevelopmentKitTests: XCTestCase {
         let validURL = "https://www.apple.com"
         let invalidURL = "not a valid url"
         
-        DevelopmentKit.openWebLink(urlString: validURL)
+        DevelopmentKit.Utilities.openWebLink(urlString: validURL)
         XCTAssertTrue(true, "成功打开网页：\(validURL)")
         
-        DevelopmentKit.openWebLink(urlString: invalidURL)
+        DevelopmentKit.Utilities.openWebLink(urlString: invalidURL)
         XCTAssertTrue(true, "无效 URL 应该不会崩溃")
 #endif
     }
@@ -73,7 +73,7 @@ class DevelopmentKitTests: XCTestCase {
     func testCopyToClipboard() {
 #if os(iOS)
         let testString = "Hello, Clipboard!"
-        DevelopmentKit.copyToClipboard(text: testString)
+        DevelopmentKit.Utilities.copyToClipboard(text: testString)
         XCTAssertEqual(UIPasteboard.general.string, testString, "剪贴板内容应与输入一致")
 #endif
     }
@@ -139,7 +139,7 @@ class DevelopmentKitTests: XCTestCase {
         let hash = input.sha256
         XCTAssertFalse(hash.isEmpty, "SHA-256 结果不应为空")
     }
-    
+    #if os(macOS)
     ///测试开机启动
     func testToggleLaunchAtLogin() {
         // 先记录当前状态，测试完再还原，避免影响系统设置
@@ -164,6 +164,7 @@ class DevelopmentKitTests: XCTestCase {
         // 不能确定一定是在登录启动时运行，所以这里只能测试调用不会崩溃
         _ = LaunchAtLogin.wasLaunchedAtLogin
     }
+    #endif
 }
 
 // MARK: - 网络测试
@@ -276,21 +277,28 @@ class SystemInfoTests: XCTestCase {
     var subscriptions = Set<AnyCancellable>()
     
 #if os(iOS)
-func testGetBatteryLevelPublisher() {
-    let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
-    
-    DevelopmentKit.SysInfo.getBatteryLevelPublisher(interval: 1.0)
-        .prefix(1)
-        .sink(receiveValue: { level in
-            print("🔋 当前电池电量：\(level)%")
-            XCTAssertGreaterThanOrEqual(level, 0)
-            XCTAssertLessThanOrEqual(level, 100)
-            expectation.fulfill()
-        })
-        .store(in: &subscriptions)
-    
-    wait(for: [expectation], timeout: 2.0)
-}
+    func testGetBatteryLevelPublisher() {
+        let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
+
+        DevelopmentKit.SysInfo.getBatteryLevelPublisher(interval: 1.0)
+            .sink(
+                receiveCompletion: { completion in
+                    if case .failure(let error) = completion {
+                        XCTFail("❌ 获取电池电量失败：\(error)")
+                        expectation.fulfill()
+                    }
+                },
+                receiveValue: { level in
+                    print("🔋 当前电池电量：\(level)%")
+                    XCTAssertGreaterThanOrEqual(level, 0)
+                    XCTAssertLessThanOrEqual(level, 100)
+                    expectation.fulfill()
+                }
+            )
+            .store(in: &subscriptions)
+
+        wait(for: [expectation], timeout: 2.0)
+    }
 #elseif os(macOS)
 
     // MARK: - 电池信息

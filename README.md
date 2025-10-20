@@ -83,7 +83,8 @@ Log("This is a log message")
 | getSystemNetworkThroughputPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<SystemNetworkThroughput, Never> | Observe network throughput (upload/download bytes per second)                    |
 | getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, Never>                 | Observe current Wi-Fi signal strength level (macOS only)                         |
 | getNetworkTypePublisher(timeout: TimeInterval = 0.5) -> AnyPublisher<NetworkType, NetworkError>                   | Get current network connection type with optional timeout                        |
-
+| `LaunchAtLoginManager.shared.setEnabled(Bool)` | Enable or disable macOS app launch at login |
+| `LaunchAtLoginManager.shared.isEnabled: Bool` | Check whether launch at login is currently enabled |
 
 ## 🚀 Contribution Guidelines
 
