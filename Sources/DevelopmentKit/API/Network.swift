@@ -23,8 +23,8 @@ extension DevelopmentKit.Network {
     /**
      获取当前网络连接类型（Combine 异步版，一次性采样）。
      
-     - Important: 本方法使用 `NWPathMonitor` 进行网络状态判断，仅返回一次性结果，不会持续监听变化。
-     返回值为枚举 `NetworkType`，表示当前所连接的网络接口类型（如 Wi-Fi、有线、蜂窝、无网络等）。
+     - Important: 本方法使用 `NWPathMonitor` 进行网络状态判断，仅返回一次性结果，不会持续监听变化。若在 timeout 秒内没回调，将发出 `.timeout` 错误。
+       返回值为枚举 `NetworkType`，表示当前所连接的网络接口类型（如 Wi-Fi、有线、蜂窝、无网络等）。
      
      - Note:
      - 支持平台：iOS、macOS；
@@ -56,84 +56,86 @@ extension DevelopmentKit.Network {
      ```
      */
     public static func getNetworkTypePublisher(timeout: TimeInterval = 0.5) -> AnyPublisher<NetworkType, NetworkError> {
-        Future<NetworkType, NetworkError> { promise in
-            let monitor = NWPathMonitor()
-            let queue = DispatchQueue.global(qos: .background)
-            
-            monitor.pathUpdateHandler = { path in
-                if path.usesInterfaceType(.wifi) {
-                    promise(.success(.wifi))
-                } else if path.usesInterfaceType(.cellular) {
-                    promise(.success(.cellular))
-                } else if path.usesInterfaceType(.wiredEthernet) {
-                    promise(.success(.wired))
-                } else if path.usesInterfaceType(.other) {
-                    promise(.success(.other))
-                } else if path.status == .unsatisfied {
-                    promise(.success(.none))
-                } else {
-                    promise(.failure(.unableToDetermineNetworkType))
+            // Deferred 确保每次订阅都创建独立的 monitor
+            return Deferred { () -> AnyPublisher<NetworkType, NetworkError> in
+                let monitor = NWPathMonitor()
+                let queue = DispatchQueue.global(qos: .background)
+
+                let publisher = Future<NetworkType, NetworkError> { promise in
+                    monitor.pathUpdateHandler = { [weak monitor] path in
+                        if path.usesInterfaceType(.wifi) {
+                            promise(.success(.wifi))
+                        } else if path.usesInterfaceType(.cellular) {
+                            promise(.success(.cellular))
+                        } else if path.usesInterfaceType(.wiredEthernet) {
+                            promise(.success(.wired))
+                        } else if path.usesInterfaceType(.other) {
+                            promise(.success(.other))
+                        } else if path.status == .unsatisfied {
+                            promise(.success(.none))
+                        } else {
+                            promise(.failure(.unableToDetermineNetworkType))
+                        }
+                        monitor?.cancel()
+                    }
+                    monitor.start(queue: queue)
                 }
-                monitor.cancel()
+                // 无论成功、失败或取消，都要停止 monitor
+                .handleEvents(receiveCancel: {
+                    monitor.cancel()
+                })
+                .eraseToAnyPublisher()
+
+                return publisher
             }
-            
-            monitor.start(queue: queue)
+            // 超时映射为自定义错误
+            .timeout(
+                .seconds(timeout),
+                scheduler: DispatchQueue.global(qos: .background),
+                customError: { .timeout }
+            )
+            // 将执行移到后台线程，最后再回到主线程
+            .subscribe(on: DispatchQueue.global(qos: .background))
+            .receive(on: RunLoop.main)
+            .eraseToAnyPublisher()
         }
-        .timeout(.seconds(timeout), scheduler: DispatchQueue.global())
-        .eraseToAnyPublisher()
-    }
 }
 
 //MARK: - Wi-Fi信号等级接口
 extension DevelopmentKit.Network {
 #if os(macOS)
     /**
-     获取当前 macOS 设备的 Wi-Fi 讯号强度等级，以 Publisher 方式定时推送。
+     获取当前 macOS 设备的 Wi-Fi 信号强度等级，以 Publisher 方式定时推送。
      
      - Important:
-     本方法仅适用于 macOS 系统，使用 `CoreWLAN` 框架读取当前 Wi-Fi 接口的 RSSI 值（Received Signal Strength Indicator）。
-     RSSI 会根据当前连接的网络状况动态变化，结果将映射为应用层定义的 `WiFiSignalLevel` 枚举值。
-
-     - Attention:
-     自 macOS 13 起，若要正常读取 RSSI 值，需满足以下条件（否则将始终返回 `.disconnected`）：
-     1. **关闭 App Sandbox**（在 `.entitlements` 中设置 `com.apple.security.app-sandbox = false`）；
-     2. **启用 Wi-Fi 权限**（添加 `com.apple.developer.networking.wifi-info = true` 到 `.entitlements`）；
-     3. **在 Info.plist 中声明定位用途**（添加 `NSLocationWhenInUseUsageDescription` 字段）；
-     4. **主动触发定位授权流程**（调用 `CLLocationManager().requestWhenInUseAuthorization()` 并 `startUpdatingLocation()`）。
-
-     若缺少上述任一项，RSSI 将始终返回 `nil`，即便 Wi-Fi 已连接。
-
+     - 本方法仅适用于 macOS，使用 `CoreWLAN` 框架读取当前 Wi-Fi 接口的 RSSI 值。
+     - 若无法获取到接口或 RSSI 值，将抛出 `NetworkError.wifiInterfaceUnavailable`。
      - Note:
-     - 返回值为自定义的 `WiFiSignalLevel` 类型，包括 `.excellent`, `.good`, `.fair`, `.weak`, `.poor`, `.disconnected` 等等级。
-     - RSSI 原始单位为 dBm，范围约在 `-30 ~ -90`（越小表示讯号越差），本方法会将其转换为易读等级。
-     - 使用 `Timer.publish` 实现定时检测，默认每秒推送一次，可通过 `interval` 参数自定义。
-     - 连续相同等级将不会重复推送（通过 `removeDuplicates()` 处理）。
+     - 返回值为自定义的 `WiFiSignalLevel`（`.excellent`, `.good`, `.fair`, `.weak`, `.poor`, `.disconnected`）。
+     - 使用 `Timer.publish` 实现定时，默认每秒推送一次；通过 `interval` 参数可自定义间隔。
+     - 连续相同等级不会重复推送（通过 `removeDuplicates()` 处理）。
      
-     - Parameter interval: 检测讯号等级的时间间隔（单位：秒），默认值为 `1.0` 秒。
-     
-     - Returns: 一个 `AnyPublisher<WiFiSignalLevel, Never>`，每隔指定时间推送当前 Wi-Fi 讯号等级。
-     
-     使用示例：
-     
-     ```swift
-     getWiFiSignalLevelPublisher(interval: 2.0)
-         .sink { level in
-             print("当前 Wi-Fi 强度：\(level)")
-         }
-         .store(in: &cancellables)
-     ```
+     - Parameter interval: 检测间隔（秒），默认 `1.0`。
+     - Returns: `AnyPublisher<WiFiSignalLevel, NetworkError>`，失败时通过 `.failure(.wifiInterfaceUnavailable)` 或 `.failure(.unknown(_))` 通知。
      */
-    public static func getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, Never> {
+    public static func getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, NetworkError> {
         Timer.publish(every: interval, on: .main, in: .common)
             .autoconnect()
-            .map { _ in
-                let rssi = CWWiFiClient.shared().interface()?.rssiValue()
+            .tryMap { _ in
+                // 取 RSSI，若失败则报错
+                guard let rssi = CWWiFiClient.shared().interface()?.rssiValue() else {
+                    throw NetworkError.wifiInterfaceUnavailable
+                }
                 return signalLevel(from: rssi)
             }
+            .mapError { error in
+                // 转为 NetworkError
+                (error as? NetworkError) ?? .unknown(error)
+            }
             .removeDuplicates()
+            .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
     }
-    
 #endif
 }
 
@@ -148,14 +150,14 @@ extension DevelopmentKit.Network {
      - 仅限macOS
      
      - Note:
-     - 接口统计仅包含 Wi-Fi (`en*`)、蜂窝 (`pdp_ip*`)、Airdrop (`awdl*`) 等活跃网络，不包含 `lo0`（本地回环）。
-     - 返回的结果为 Byte/s（字节/秒），若需换算为 Kbps、Mbps，可在上层视图层转换。
-     - 该方法使用 Combine 的 `Timer.publish` 进行定时驱动，并不会抛出错误（返回类型为 `Never`）。
-     - 第一次回调时将返回 `(0, 0)`，作为基准采样点。
+            - 接口统计仅包含 Wi-Fi (`en*`)、蜂窝 (`pdp_ip*`)、Airdrop (`awdl*`) 等活跃网络。
+            - 返回值为 `SystemNetworkThroughput`，字段单位为 Byte/s。
+            - 首次回调会作为基准返回 `(0, 0)`。
+            - 没有去重，应用层要自行处理去重问题
      
      - Parameter interval: 吞吐率计算的时间间隔（单位：秒），默认为 `1.0`。
      
-     - Returns: 一个 `AnyPublisher<SystemNetworkThroughput, Never>`，定时返回每秒接收与发送的网络字节数。
+     - Returns: 一个 `AnyPublisher<SystemNetworkThroughput, NetworkError>`，定时返回每秒接收与发送的网络字节数。
      
      使用示例：
      
@@ -168,59 +170,60 @@ extension DevelopmentKit.Network {
      .store(in: &cancellables)
      ```
      */
-    public static func getSystemNetworkThroughputPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<SystemNetworkThroughput, Never> {
-        
-        /// 每次定时执行，返回当前吞吐数据
-        func getThroughput() -> (rx: UInt64, tx: UInt64) {
-            var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
-            guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else {
-                return (0, 0)
-            }
+    public static func getSystemNetworkThroughputPublisher(
+            interval: TimeInterval = 1.0
+    ) -> AnyPublisher<SystemNetworkThroughput, NetworkError> {
+        return Deferred {
+            var previous: (rx: UInt64, tx: UInt64)? = nil
             
-            var rxBytes: UInt64 = 0
-            var txBytes: UInt64 = 0
-            
-            var ptr = firstAddr
-            while ptr.pointee.ifa_next != nil {
-                let interface = ptr.pointee
-                let name = String(cString: interface.ifa_name)
-                
-                // 排除 lo0 等非活跃接口
-                if name.hasPrefix("en") || name.hasPrefix("awdl") || name.hasPrefix("pdp_ip") {
-                    if let data = interface.ifa_data?.assumingMemoryBound(to: if_data.self) {
-                        rxBytes += UInt64(data.pointee.ifi_ibytes)
-                        txBytes += UInt64(data.pointee.ifi_obytes)
+            return Timer
+                .publish(every: interval, on: .main, in: .common)
+                .autoconnect()
+                .tryMap { _ in
+                    //获取原始字节数
+                    var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
+                    guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else {
+                        throw NetworkError.throughputUnavailable
                     }
+                    
+                    var rxBytes: UInt64 = 0
+                    var txBytes: UInt64 = 0
+                    var ptr = first
+                    while ptr.pointee.ifa_next != nil {
+                        let name = String(cString: ptr.pointee.ifa_name)
+                        if (name.hasPrefix("en") || name.hasPrefix("awdl") || name.hasPrefix("pdp_ip")),
+                           let data = ptr.pointee.ifa_data?.assumingMemoryBound(to: if_data.self) {
+                            rxBytes += UInt64(data.pointee.ifi_ibytes)
+                            txBytes += UInt64(data.pointee.ifi_obytes)
+                        }
+                        ptr = ptr.pointee.ifa_next!
+                    }
+                    freeifaddrs(ifaddrPtr)
+                    
+                    //安全计算差值
+                    let current = (rx: rxBytes, tx: txBytes)
+                    defer { previous = current }
+                    let deltaRx = previous.map { current.rx >= $0.rx ? current.rx - $0.rx : 0 } ?? 0
+                    let deltaTx = previous.map { current.tx >= $0.tx ? current.tx - $0.tx : 0 } ?? 0
+                    
+                    return SystemNetworkThroughput(
+                        receivedBytesPerSec: deltaRx,
+                        sentBytesPerSec: deltaTx
+                    )
                 }
-                
-                ptr = interface.ifa_next!
-            }
-            
-            freeifaddrs(ifaddrPtr)
-            return (rxBytes, txBytes)
+            //错误映射：将任意 Error 包装为 NetworkError
+                .mapError { error in
+                    (error as? NetworkError) ?? .unknown(error)
+                }
+            //在后台队列执行数据采集和计算
+                .subscribe(on: DispatchQueue.global(qos: .utility))
+            //共享同一流，避免多订阅重复采样
+                .share()
+            //主线程发送结果
+                .receive(on: RunLoop.main)
+                .eraseToAnyPublisher()
         }
-        
-        var previous: (rx: UInt64, tx: UInt64)? = nil
-        
-        return Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()
-            .map { _ in
-                let current = getThroughput()
-                defer { previous = current }
-                
-                guard let previous = previous else {
-                    return SystemNetworkThroughput(receivedBytesPerSec: 0, sentBytesPerSec: 0)
-                }
-                
-                let deltaRx = current.rx - previous.rx
-                let deltaTx = current.tx - previous.tx
-                
-                return SystemNetworkThroughput(
-                    receivedBytesPerSec: deltaRx,
-                    sentBytesPerSec: deltaTx
-                )
-            }
-            .eraseToAnyPublisher()
+        .eraseToAnyPublisher()
     }
 #endif
 }
