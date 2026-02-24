@@ -116,7 +116,7 @@ class DevelopmentKitTests: XCTestCase {
         let invalidEmail3 = "test@exam_ple.com" // 下划线不允许
         let invalidEmail4 = "test@example..com" // 连续两个点
         
-        let emailPattern = "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$" // ✅ 只允许大写字母
+        let emailPattern = "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$" // 只允许大写字母
         
         XCTAssertTrue(validEmailUpper.regexValidation(pattern: emailPattern), "大写字母邮件应匹配")
         XCTAssertFalse(validEmailLower.regexValidation(pattern: emailPattern), "小写字母邮件不应匹配")
@@ -187,7 +187,7 @@ class NetworkTests: XCTestCase {
                 if case .failure(let error) = completion {
                     switch error {
                     case .timeout, .unableToDetermineNetworkType:
-                        // ✅ 合理错误，测试通过
+                        // 合理错误，测试通过
                         break
                     default:
                         XCTFail("出现未预期的错误类型：\(error)")
@@ -289,7 +289,7 @@ class SystemInfoTests: XCTestCase {
                     }
                 },
                 receiveValue: { level in
-                    print("🔋 当前电池电量：\(level)%")
+                    print("当前电池电量：\(level)%")
                     XCTAssertGreaterThanOrEqual(level, 0)
                     XCTAssertLessThanOrEqual(level, 100)
                     expectation.fulfill()
@@ -313,11 +313,11 @@ class SystemInfoTests: XCTestCase {
                     XCTFail("获取电池信息失败：\(error)")
                 }
             }, receiveValue: { batteryInfo in
-                print("🔋电池电量：\(batteryInfo.level)%")
-                print("🔋最大容量：\(batteryInfo.maxCapacity)")
-                print("🔋充电状态：\(batteryInfo.isCharging ? "是" : "否")")
-                print("🔋温度：\(batteryInfo.temperature) °C")
-                print("🔋循环次数：\(batteryInfo.cycleCount)")
+                print("电池电量：\(batteryInfo.level)%")
+                print("最大容量：\(batteryInfo.maxCapacity)")
+                print("充电状态：\(batteryInfo.isCharging ? "是" : "否")")
+                print("温度：\(batteryInfo.temperature) °C")
+                print("循环次数：\(batteryInfo.cycleCount)")
                 
                 XCTAssert((0...100).contains(batteryInfo.level))
                 XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
@@ -339,14 +339,14 @@ class SystemInfoTests: XCTestCase {
             .sink(receiveCompletion: { completion in
                 if case .failure(let error) = completion {
                     if case DevelopmentKit.SysInfo.SysInfoError.memoryReadFailure = error {
-                        // ✅ 允许的错误
+                        // 允许的错误
                     } else {
                         XCTFail("出现未预期的错误：\(error)")
                     }
                     expectation.fulfill()
                 }
             }, receiveValue: { info in
-                print("💾 内存使用情况：\(info)")
+                print("内存使用情况：\(info)")
                 XCTAssertGreaterThan(info.total, 0)
                 XCTAssertGreaterThanOrEqual(info.free, 0)
                 XCTAssertGreaterThanOrEqual(info.inactive, 0)
@@ -369,14 +369,14 @@ class SystemInfoTests: XCTestCase {
             .sink(receiveCompletion: { completion in
                 if case .failure(let error) = completion {
                     if case DevelopmentKit.SysInfo.SysInfoError.cpuSnapshotFailed = error {
-                        // ✅ 合理错误
+                        // 合理错误
                     } else {
                         XCTFail("出现未预期的错误：\(error)")
                     }
                     expectation.fulfill()
                 }
             }, receiveValue: { info in
-                print("🧠 CPU 信息：\(info.model)")
+                print("CPU 信息：\(info.model)")
                 XCTAssertFalse(info.model.isEmpty)
                 XCTAssertGreaterThan(info.physicalCores, 0)
                 XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores)
@@ -405,14 +405,14 @@ class SystemInfoTests: XCTestCase {
             .sink(receiveCompletion: { completion in
                 if case .failure(let error) = completion {
                     if case DevelopmentKit.SysInfo.SysInfoError.diskSpaceUnavailable = error {
-                        // ✅ 合理错误
+                        // 合理错误
                     } else {
                         XCTFail("出现未预期的错误：\(error)")
                     }
                     expectation.fulfill()
                 }
             }, receiveValue: { space in
-                print("💽 剩余磁盘空间：\(space) GB")
+                print("剩余磁盘空间：\(space) GB")
                 XCTAssertGreaterThanOrEqual(space, 0)
                 expectation.fulfill()
             })
@@ -436,42 +436,34 @@ final class LogLocalManagerTests: XCTestCase {
             try? FileManager.default.removeItem(at: file)
         }
     }
+    
+    override func tearDown() async throws {
+        // 测试结束后强制 flush，确保所有日志写入
+        // 不要调用 shutdown()，否则会停止后台任务影响后续测试
+        await LogLocalManager.shared.flush()
+    }
 
-    /// **测试 `Log()` 是否正确输出到 Xcode 控制台（仅检查不会崩溃）**
+    /// **测试基本日志写入功能**
     func testLogFunction() async {
-        Log("测试日志存储")  //
+        Log("测试日志存储 - testLogFunction")
         
-        // **等待日志写入**
-        try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 秒，确保写入
+        // 等待自动 flush（2秒定时器）
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
         
         let logFiles = await LogLocalManager.shared.getLogFiles()
         XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
+        
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            XCTAssertTrue(content.contains("测试日志存储 - testLogFunction"), "❌ 日志内容未正确写入")
+        }
     }
 
-    /// **测试 `saveLog()` 是否能正确写入日志文件**
+    /// **测试直接调用 saveLog**
     func testSaveLog() async {
         await LogLocalManager.shared.saveLog(message: "测试 saveLog", file: "Test.swift", line: 42)
 
-        // **等待日志写入**
-        try? await Task.sleep(nanoseconds: 2_500_000_000)
-
-        let logFiles = await LogLocalManager.shared.getLogFiles()
-        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
-
-        // **检查日志内容**
-        if let logFile = logFiles.first,
-           let content = try? String(contentsOf: logFile) {
-            XCTAssertTrue(content.contains("测试 saveLog"), "❌ 日志文件应包含 `测试 saveLog`")
-        } else {
-            XCTFail("❌ 无法读取日志文件")
-        }
-    }
-
-    /// **测试 `flushLogsToFile()` 是否按预期写入**
-    func testFlushLogs() async {
-        await LogLocalManager.shared.saveLog(message: "测试 flush", file: "Test.swift", line: 99)
-
-        // **等待 flush 触发**
+        // 等待自动 flush
         try? await Task.sleep(nanoseconds: 2_500_000_000)
 
         let logFiles = await LogLocalManager.shared.getLogFiles()
@@ -479,122 +471,165 @@ final class LogLocalManagerTests: XCTestCase {
 
         if let logFile = logFiles.first,
            let content = try? String(contentsOf: logFile) {
-            XCTAssertTrue(content.contains("测试 flush"), "❌ 日志文件应包含 `测试 flush`")
+            XCTAssertTrue(content.contains("测试 saveLog"), "❌ 日志文件应包含内容")
+            XCTAssertTrue(content.contains("Test.swift"), "❌ 日志应包含文件名")
+            XCTAssertTrue(content.contains("42"), "❌ 日志应包含行号")
         } else {
             XCTFail("❌ 无法读取日志文件")
         }
     }
 
-    /// **测试 `LogLocalManager` 在高并发场景下是否线程安全**
+    /// **测试高并发场景（模拟真实多线程日志）**
     func testConcurrentLogging() async {
-        let logCount = 50  // **模拟高并发写入**
-        let expectation = XCTestExpectation(description: "高并发日志写入")
+        let logCount = 100
 
-        for i in 1...logCount {
-            Task {
-                await LogLocalManager.shared.saveLog(message: "并发日志 \(i)", file: "ConcurrencyTest.swift", line: i)
+        await withTaskGroup(of: Void.self) { group in
+            for i in 1...logCount {
+                group.addTask {
+                    await LogLocalManager.shared.saveLog(
+                        message: "并发日志 \(i)",
+                        file: "ConcurrencyTest.swift",
+                        line: i
+                    )
+                }
             }
         }
 
-        // **等待日志写入**
-        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        // 100条会自动flush，等待I/O完成
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
 
         let logFiles = await LogLocalManager.shared.getLogFiles()
         XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
 
         if let logFile = logFiles.first,
            let content = try? String(contentsOf: logFile) {
-            for i in 1...logCount {
-                XCTAssertTrue(content.contains("并发日志 \(i)"), "❌ 缺少 `并发日志 \(i)`")
-            }
+            let missingLogs = (1...logCount).filter { !content.contains("并发日志 \($0)") }
+            XCTAssertTrue(missingLogs.isEmpty, "❌ 并发场景下缺少 \(missingLogs.count) 条日志")
         } else {
             XCTFail("❌ 无法读取日志文件")
         }
-
-        expectation.fulfill()
-        await fulfillment(of: [expectation], timeout: 10.0)
     }
 
-    /// **测试日志文件是否会超出最大容量**
-    func testLogFileSizeLimit() async {
-        let maxEntries = 500 // 假设 NDJSON 文件最多存储 500 条日志
-        for i in 1...maxEntries {
-            await LogLocalManager.shared.saveLog(message: "日志 \(i)", file: "SizeTest.swift", line: i)
+    /// **测试自动 flush 机制（2秒定时触发）**
+    func testAutoFlush() async {
+        // 写入少量日志，不触发 100 条的阈值
+        for i in 1...5 {
+            await LogLocalManager.shared.saveLog(message: "自动flush测试 \(i)", file: "AutoFlushTest.swift", line: i)
         }
-
-        // **等待日志写入**
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
-
+        
+        // 等待超过 2 秒的 flush 间隔
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        
+        // 不手动 flush，验证定时器是否工作
         let logFiles = await LogLocalManager.shared.getLogFiles()
-        XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
-
+        XCTAssertFalse(logFiles.isEmpty, "❌ 自动 flush 应该创建日志文件")
+        
         if let logFile = logFiles.first,
            let content = try? String(contentsOf: logFile) {
-            let lines = content.split(separator: "\n")
-            XCTAssertLessThanOrEqual(lines.count, maxEntries, "❌ 日志文件过大，超过最大行数限制")
+            for i in 1...5 {
+                XCTAssertTrue(content.contains("自动flush测试 \(i)"), "❌ 定时器应在 2 秒后自动写入日志")
+            }
         } else {
-            XCTFail("❌ 无法读取日志文件")
+            XCTFail("❌ 自动 flush 机制未正常工作")
         }
+    }
+
+    /// **测试 100 条缓存阈值触发 flush**
+    func testBufferThresholdFlush() async {
+        // 精确写入 100 条，触发缓存上限
+        for i in 1...100 {
+            await LogLocalManager.shared.saveLog(message: "缓存测试 \(i)", file: "BufferTest.swift", line: i)
+        }
+        
+        // 短暂等待 I/O 完成
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 秒
+        
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        XCTAssertFalse(logFiles.isEmpty, "❌ 达到 100 条阈值应自动 flush")
+        
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            let lines = content.split(separator: "\n").filter { !$0.isEmpty }
+            print("📊 写入 100 条日志，实际文件行数：\(lines.count)")
+            XCTAssertEqual(lines.count, 100, "❌ 100 条阈值触发的 flush 应写入所有日志")
+        }
+    }
+
+    /// **测试超过缓存上限的场景（暴露问题）**
+    func testExceedBufferLimit() async {
+        let totalLogs = 250
+        
+        // 模拟真实场景：连续写入大量日志
+        for i in 1...totalLogs {
+            await LogLocalManager.shared.saveLog(message: "大量日志 \(i)", file: "StressTest.swift", line: i)
+        }
+        
+        // 等待所有自动 flush 完成（250条会触发2次100条的flush，剩余50条需要等定时器）
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        
+        let logFiles = await LogLocalManager.shared.getLogFiles()
+        guard let logFile = logFiles.first,
+              let content = try? String(contentsOf: logFile) else {
+            XCTFail("❌ 日志文件不存在")
+            return
+        }
+        
+        let lines = content.split(separator: "\n").filter { !$0.isEmpty }
+        print("📊 写入 \(totalLogs) 条日志，实际文件行数：\(lines.count)")
+        
+        // 验证是否有日志丢失
+        let missingLogs = (1...totalLogs).filter { !content.contains("大量日志 \($0)") }
+        
+        if !missingLogs.isEmpty {
+            print("⚠️ 发现丢失的日志：\(missingLogs.prefix(10))... (共 \(missingLogs.count) 条)")
+            XCTFail("❌ 发现 \(missingLogs.count) 条日志丢失，缓存机制存在问题")
+        }
+        
+        XCTAssertEqual(lines.count, totalLogs, "❌ 所有日志都应该被写入")
     }
 
     /// **测试日志轮转（每天生成一个新文件）**
     func testLogRotation() async {
         let todayPath = await LogLocalManager.shared.getLogFilePath()
-        let tomorrowPath = await LogLocalManager.shared.getLogFilePath(for: Date().addingTimeInterval(86400)) // +1 天
+        let tomorrowPath = await LogLocalManager.shared.getLogFilePath(for: Date().addingTimeInterval(86400))
 
-        XCTAssertNotEqual(todayPath, tomorrowPath, "❌ 日志文件未按天轮转")
+        XCTAssertNotEqual(todayPath, tomorrowPath, "❌ 不同日期应生成不同的日志文件")
 
         await LogLocalManager.shared.saveLog(message: "测试日志轮转", file: "RotationTest.swift", line: 1)
 
-        // **等待日志写入**
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        // 等待自动 flush
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
 
         let logFiles = await LogLocalManager.shared.getLogFiles()
         XCTAssertTrue(logFiles.contains(todayPath), "❌ 今天的日志文件应存在")
     }
 
-    /// **测试写入异常情况（文件不可写）**
-//    func testWriteFailure() async {
-//        let logFile = await LogLocalManager.shared.getLogFilePath()
-//
-//        // **确保文件存在**
-//        if !FileManager.default.fileExists(atPath: logFile.path) {
-//            FileManager.default.createFile(atPath: logFile.path, contents: nil)
-//        }
-//
-//        // **设置文件保护，完全阻止访问**
-//        let attributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.complete]
-//        try? FileManager.default.setAttributes(attributes, ofItemAtPath: logFile.path)
-//
-//        // **尝试写入日志**
-//        await LogLocalManager.shared.saveLog(message: "测试不可写入", file: "ErrorTest.swift", line: 999)
-//
-//        // **恢复文件保护**
-//        let writableAttributes: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.none]
-//        try? FileManager.default.setAttributes(writableAttributes, ofItemAtPath: logFile.path)
-//
-//        // **检查日志文件内容**
-//        let content = try? String(contentsOf: logFile)
-//        XCTAssertFalse(content?.contains("测试不可写入") ?? false, "❌ 不可写入的情况下，日志不应写入文件")
-//    }
-
-    /// **测试日志删除功能**
-    func testDeleteLogs() async {
-        await LogLocalManager.shared.saveLog(message: "待删除日志", file: "DeleteTest.swift", line: 123)
-
-        // **等待日志写入**
+    /// **测试 NDJSON 格式**
+    func testNDJSONFormat() async {
+        await LogLocalManager.shared.saveLog(message: "测试 JSON 格式", file: "JSONTest.swift", line: 100)
+        
         try? await Task.sleep(nanoseconds: 2_500_000_000)
-
+        
         let logFiles = await LogLocalManager.shared.getLogFiles()
         XCTAssertFalse(logFiles.isEmpty, "❌ 日志文件应存在")
-
-        for file in logFiles {
-            try? FileManager.default.removeItem(at: file)
+        
+        if let logFile = logFiles.first,
+           let content = try? String(contentsOf: logFile) {
+            let lines = content.split(separator: "\n").filter { !$0.isEmpty }
+            
+            for line in lines {
+                let data = Data(line.utf8)
+                XCTAssertNoThrow(try JSONSerialization.jsonObject(with: data), "❌ 每行应为合法 JSON")
+                
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    XCTAssertNotNil(json["timestamp"], "❌ 日志应包含 timestamp")
+                    XCTAssertNotNil(json["file"], "❌ 日志应包含 file")
+                    XCTAssertNotNil(json["line"], "❌ 日志应包含 line")
+                    XCTAssertNotNil(json["message"], "❌ 日志应包含 message")
+                }
+            }
+        } else {
+            XCTFail("❌ 无法读取日志文件")
         }
-
-        let remainingFiles = await LogLocalManager.shared.getLogFiles()
-        XCTAssertTrue(remainingFiles.isEmpty, "❌ 日志文件未正确删除")
     }
-    
-    
 }
