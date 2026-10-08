@@ -108,8 +108,9 @@ public struct MacMemoryInfo: CustomStringConvertible {
 }
 ///cpu数据结构
 public struct MacCPUInfo {
-    /// 型号 / 名称
-    public let model: String
+    /// 型号 / 名称（如 "Apple M3 Pro"），取自 sysctl `machdep.cpu.brand_string`；系统未提供时为 nil
+    /// - Important: `machdep.cpu.brand_string` 不在 `<sys/sysctl.h>` 的公开文档中（同处读取的 `hw.physicalcpu`、 `hw.logicalcpu` 才有文档），未来系统版本可能改格式或移除。只用于显示：为 nil 时隐藏或显示通用文案；不要据此做逻辑判断（如芯片代际、性能分级），也不要与其他设备信息组合上传。
+    public let model: String?
     /// 物理核心数
     public let physicalCores: Int
     /// 逻辑核心数（包含超线程）
@@ -126,7 +127,7 @@ public struct MacCPUInfo {
             .map { "  - Core \($0.offset): \($0.element.rounded(toPlaces: 2))%" }
             .joined(separator: "\n")
         return """
-            🧠 CPU 型号：\(model)
+            🧠 CPU 型号：\(model ?? "系统未提供")
             🔩 物理核心数：\(physicalCores)
             🔢 逻辑核心数：\(logicalCores)
             ⚙️ 总体占用：\(totalUsage.rounded(toPlaces: 2))%

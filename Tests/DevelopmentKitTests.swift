@@ -437,8 +437,11 @@ class SystemInfoTests: XCTestCase {
                     expectation.fulfill()
                 }
             }, receiveValue: { info in
-                print("CPU 信息：\(info.model)")
-                XCTAssertFalse(info.model.isEmpty)
+                print("CPU 信息：\(info.model ?? "系统未提供")")
+                // model 取自没有公开文档的 sysctl 名称，nil 表示系统未提供，不视为失败；有值时不应是空字符串
+                if let model = info.model {
+                    XCTAssertFalse(model.isEmpty)
+                }
                 XCTAssertGreaterThan(info.physicalCores, 0)
                 XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores)
                 

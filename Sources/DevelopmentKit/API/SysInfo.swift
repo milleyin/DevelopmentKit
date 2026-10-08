@@ -412,9 +412,7 @@ extension DevelopmentKit.SysInfo {
      - 若 `interval == 0`，将仅采样一次（结果为历史累计快照，非实时占用率）；
      - 若 `interval > 0`，则每隔指定时间推送一次“当前 CPU 活动占用率”（基于差值计算）。
      
-     - Note: 使用率的计算基于 `host_processor_info()` 返回的数据，结果单位为百分比（%）。
-     每个核心的使用率包含用户态、系统态及 nice 态之和，不区分线程类型。
-     支持 Apple Silicon 与 Intel 架构的 macOS 设备。
+     - Note: 使用率的计算基于 `host_processor_info()` 返回的数据，结果单位为百分比（%）。每个核心的使用率包含用户态、系统态及 nice 态之和，不区分线程类型。支持 Apple Silicon 与 Intel 架构的 macOS 设备。型号 `model` 取自没有公开文档的 sysctl 名称，系统未提供时为 `nil`，不视为失败；用法限制见 `MacCPUInfo.model`。
      
      - Returns: 一个 `AnyPublisher<MacCPUInfo, Error>`，成功时返回 `MacCPUInfo`，失败时返回错误信息。
      
@@ -426,7 +424,7 @@ extension DevelopmentKit.SysInfo {
      ```swift
      getCPUInfoPublisher()
      .sink(receiveCompletion: { ... }, receiveValue: { info in
-     print(info.model)
+     print(info.model ?? "未知型号")
      print(info.totalUsage)
      })
      .store(in: &cancellables)
@@ -480,11 +478,13 @@ extension DevelopmentKit.SysInfo {
             return ((totalUsed / totalAll) * 100, coreUsages)
         }
 
-        func readStaticInfo() -> (model: String, physical: Int, logical: Int) {
+        func readStaticInfo() -> (model: String?, physical: Int, logical: Int) {
             var modelBuffer = [CChar](repeating: 0, count: 256)
             var size = modelBuffer.count
-            sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
-            let model = String(cString: modelBuffer)
+            let status = sysctlbyname("machdep.cpu.brand_string", &modelBuffer, &size, nil, 0)
+            let brand = String(cString: modelBuffer)
+            // 这个 sysctl 名称没有公开文档，可能随系统版本消失：读取失败或为空时给 nil，不用空字符串充当"未知"
+            let model: String? = (status == 0 && !brand.isEmpty) ? brand : nil
 
             var physicalCores: Int32 = 0
             var logicalCores: Int32 = 0
