@@ -14,6 +14,7 @@ import CoreWLAN
 import AppKit
 import IOKit
 import IOKit.ps
+import IOKit.pwr_mgt
 // Darwin 可选导入，通常 Foundation 已经隐式包含
 #endif
 //MARK: - 电池信息接口
