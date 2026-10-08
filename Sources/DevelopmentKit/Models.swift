@@ -57,16 +57,23 @@ public struct SystemNetworkThroughput {
 public struct MacBatteryInfo {
     /// 电池电量百分比
     public var level: Int
-    /// 最大电池容量
+    /// IOPS 的 Max Capacity。Apple 电源按 IOPSKeys.h 约定以百分比发布（通常为 100），不是 mAh 容量
     public var maxCapacity: Int
-    ///充电状态
+    /// 充电状态
+    /// 是否接着外部电源：取自 IOPS `kIOPSPowerSourceStateKey` 是否为 `kIOPSACPowerValue`
+    /// - Important: 不等于"电池正在充电"。接着电源但没有充电时此值仍为 `true`，常见于：
+    ///     - 优化电池充电把电量停在 80%（此时 `pmset -g batt` 显示 "AC attached; not charging"）；
+    ///     - 已达到设定的充电上限（macOS 26.4 起的 Apple 芯片机型）；
+    ///     - 电池已充满。
+    /// 沿用"接着电源"的语义是有意的决定，改读 `kIOPSIsChargingKey` 会改变现有行为。需要"是否正在充电"时，公开来源是 IOPS 的 `kIOPSIsChargingKey`，本结构体目前未提供该字段。
+        
     public var isCharging: Bool
-    /// 电池温度 (单位：摄氏度)
-    public var temperature: Double
-    /// 循环次数
-    public var cycleCount: Int
+    /// 电池温度（摄氏度）。系统未通过公开接口提供时为 nil（例如 macOS 27）
+    public var temperature: Double?
+    /// 循环次数。系统未通过公开接口提供时为 nil
+    public var cycleCount: Int?
     
-    public init(level: Int = 0, maxCapacity: Int = 0, isCharging: Bool = false, temperature: Double = -1, cycleCount: Int = 0) {
+    public init(level: Int = 0, maxCapacity: Int = 0, isCharging: Bool = false, temperature: Double? = nil, cycleCount: Int? = nil) {
         self.level = level
         self.maxCapacity = maxCapacity
         self.isCharging = isCharging
@@ -101,8 +108,9 @@ public struct MacMemoryInfo: CustomStringConvertible {
 }
 ///cpu数据结构
 public struct MacCPUInfo {
-    /// 型号 / 名称
-    public let model: String
+    /// 型号 / 名称（如 "Apple M3 Pro"），取自 sysctl `machdep.cpu.brand_string`；系统未提供时为 nil
+    /// - Important: `machdep.cpu.brand_string` 不在 `<sys/sysctl.h>` 的公开文档中（同处读取的 `hw.physicalcpu`、 `hw.logicalcpu` 才有文档），未来系统版本可能改格式或移除。只用于显示：为 nil 时隐藏或显示通用文案；不要据此做逻辑判断（如芯片代际、性能分级），也不要与其他设备信息组合上传。
+    public let model: String?
     /// 物理核心数
     public let physicalCores: Int
     /// 逻辑核心数（包含超线程）
@@ -119,7 +127,7 @@ public struct MacCPUInfo {
             .map { "  - Core \($0.offset): \($0.element.rounded(toPlaces: 2))%" }
             .joined(separator: "\n")
         return """
-            🧠 CPU 型号：\(model)
+            🧠 CPU 型号：\(model ?? "系统未提供")
             🔩 物理核心数：\(physicalCores)
             🔢 逻辑核心数：\(logicalCores)
             ⚙️ 总体占用：\(totalUsage.rounded(toPlaces: 2))%

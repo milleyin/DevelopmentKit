@@ -8,6 +8,11 @@
 import XCTest
 import Combine
 @testable import DevelopmentKit
+#if os(macOS)
+// 电池组装纯函数的测试直接使用 IOPS / IOPM 的公开键常量
+import IOKit.ps
+import IOKit.pwr_mgt
+#endif
 
 class DevelopmentKitTests: XCTestCase {
     
@@ -311,23 +316,79 @@ class SystemInfoTests: XCTestCase {
             .sink(receiveCompletion: { completion in
                 if case .failure(let error) = completion {
                     XCTFail("获取电池信息失败：\(error)")
+                    // 失败分支也要 fulfill，否则每次失败都多等满超时、多一条噪音
+                    expectation.fulfill()
                 }
             }, receiveValue: { batteryInfo in
                 print("电池电量：\(batteryInfo.level)%")
                 print("最大容量：\(batteryInfo.maxCapacity)")
                 print("充电状态：\(batteryInfo.isCharging ? "是" : "否")")
-                print("温度：\(batteryInfo.temperature) °C")
-                print("循环次数：\(batteryInfo.cycleCount)")
+                print("温度：\(batteryInfo.temperature.map { "\($0) °C" } ?? "系统未提供")")
+                print("循环次数：\(batteryInfo.cycleCount.map { "\($0)" } ?? "系统未提供")")
                 
                 XCTAssert((0...100).contains(batteryInfo.level))
-                XCTAssertGreaterThanOrEqual(batteryInfo.maxCapacity, 0)
-                XCTAssertGreaterThanOrEqual(batteryInfo.temperature, 0)
-                XCTAssertGreaterThanOrEqual(batteryInfo.cycleCount, 0)
+                XCTAssertGreaterThan(batteryInfo.maxCapacity, 0)
+                // 温度与循环次数在部分系统上为 nil（例如 macOS 27），有值时才校验
+                if let temperature = batteryInfo.temperature {
+                    XCTAssert((-20.0...80.0).contains(temperature), "温度超出合理范围：\(temperature)")
+                }
+                if let cycleCount = batteryInfo.cycleCount {
+                    XCTAssertGreaterThanOrEqual(cycleCount, 0)
+                }
                 expectation.fulfill()
             })
             .store(in: &subscriptions)
         
         wait(for: [expectation], timeout: 3.0)
+    }
+    
+    // MARK: - 电池信息组装（纯函数，不依赖环境）
+
+    /// macOS 26 及以前的布局：IOPS 无温度，注册表有顶层温度（0.1 K）与循环次数
+    func testMakeBatteryInfoUsesRegistryTemperatureInDeciKelvin() throws {
+        let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
+            iopsDescription: [kIOPSCurrentCapacityKey: 80, kIOPSMaxCapacityKey: 100, kIOPSPowerSourceStateKey: kIOPSACPowerValue],
+            registryProperties: [kIOPMPSBatteryTemperatureKey: 3035, kIOPMPSCycleCountKey: 91]
+        )
+        XCTAssertEqual(info.level, 80)
+        XCTAssertTrue(info.isCharging)
+        XCTAssertEqual(try XCTUnwrap(info.temperature), 30.35, accuracy: 0.001)
+        XCTAssertEqual(info.cycleCount, 91)
+    }
+
+    /// macOS 27 的布局：两个公开来源都没有温度，注册表也没有循环次数
+    func testMakeBatteryInfoReturnsNilWhenSystemProvidesNothing() throws {
+        let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
+            iopsDescription: [kIOPSCurrentCapacityKey: 80, kIOPSMaxCapacityKey: 100],
+            registryProperties: [:]
+        )
+        XCTAssertNil(info.temperature)
+        XCTAssertNil(info.cycleCount)
+        XCTAssertFalse(info.isCharging)
+    }
+
+    /// IOPS 提供温度时优先使用（单位 °C），不再读注册表
+    func testMakeBatteryInfoPrefersIOPSTemperature() throws {
+        let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
+            iopsDescription: [kIOPSCurrentCapacityKey: 80, kIOPSMaxCapacityKey: 100, kIOPSTemperatureKey: 31],
+            registryProperties: [kIOPMPSBatteryTemperatureKey: 3035]
+        )
+        XCTAssertEqual(info.temperature, 31)
+    }
+
+    /// 缺少电量字段或最大容量为 0 时报 batteryUnavailable（旧实现在最大容量为 0 时会崩溃）
+    func testMakeBatteryInfoRejectsInvalidCapacity() {
+        let invalidDescriptions: [[String: Any]] = [
+            [kIOPSCurrentCapacityKey: 80],
+            [kIOPSCurrentCapacityKey: 80, kIOPSMaxCapacityKey: 0]
+        ]
+        for description in invalidDescriptions {
+            XCTAssertThrowsError(try DevelopmentKit.SysInfo.makeBatteryInfo(iopsDescription: description, registryProperties: [:])) { error in
+                guard case .batteryUnavailable? = error as? DevelopmentKit.SysInfo.SysInfoError else {
+                    return XCTFail("未预期的错误：\(error)")
+                }
+            }
+        }
     }
 
     // MARK: - 内存信息
@@ -376,8 +437,11 @@ class SystemInfoTests: XCTestCase {
                     expectation.fulfill()
                 }
             }, receiveValue: { info in
-                print("CPU 信息：\(info.model)")
-                XCTAssertFalse(info.model.isEmpty)
+                print("CPU 信息：\(info.model ?? "系统未提供")")
+                // model 取自没有公开文档的 sysctl 名称，nil 表示系统未提供，不视为失败；有值时不应是空字符串
+                if let model = info.model {
+                    XCTAssertFalse(model.isEmpty)
+                }
                 XCTAssertGreaterThan(info.physicalCores, 0)
                 XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores)
                 
