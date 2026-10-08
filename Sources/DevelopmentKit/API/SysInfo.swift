@@ -22,9 +22,7 @@ extension DevelopmentKit.SysInfo {
     /**
      获取当前 iOS 设备的电池电量百分比（0~100），以 Publisher 方式定时推送。
      
-     - Important: 本方法使用 `UIDevice.current.batteryLevel` 获取电量值。
-     该接口必须启用电池监控（`UIDevice.current.isBatteryMonitoringEnabled = true`）才能生效。
-     电量值以定时器方式定期更新，适合用于 UI 显示、电量监控图表等用途。
+     - Important: 本方法使用 `UIDevice.current.batteryLevel` 获取电量值。该接口必须启用电池监控（`UIDevice.current.isBatteryMonitoringEnabled = true`）才能生效。电量值以定时器方式定期更新，适合用于 UI 显示、电量监控图表等用途。
      
      - Note:
        - 电量值为浮点值（0.0 ~ 1.0），此处已转换为整数百分比（0 ~ 100）。
@@ -69,20 +67,19 @@ extension DevelopmentKit.SysInfo {
     /**
      获取当前 macOS 设备的电池信息，包括电量、电池最大容量、充电状态、电池温度与循环次数。
      
-     - Important: 本方法使用 `IOKit` 框架访问底层电池服务，仅适用于 macOS。
-     需要运行在具有电池硬件的设备（如 MacBook），部分台式机（如 Mac mini / Mac Studio）可能返回空值或失败。
+     - Important: 只通过公开接口取值：IOPS（`IOPowerSources.h` / `IOPSKeys.h`），以及 `IOPMPowerSource` 注册表条目上在 `IOPM.h` 中有常量定义的属性。不读取 `BatteryData` 等没有公开常量的结构，避免 SDK 成为调用方 App 的审核风险。需要运行在具有内建电池的设备（如 MacBook）上，台式机（如 Mac mini / Mac Studio）输出 `.batteryUnavailable`。
 
      - Note:
-       - 电池温度单位为 **摄氏度**，通过 `AppleSmartBattery` 服务获取的原始值已转换为可读单位。
-       - 当温度无法获取时（返回值为 -1），Publisher 将输出 `.failure`。
-       - 所有电池信息均为当前状态的一次性采样，非持续监听。
-       - 循环次数可用于评估电池健康状况，通常 Apple 建议 Mac 电池循环不超过 1000 次。
+        - 所有电池信息均为当前状态的一次性采样，非持续监听。
+        - `temperature` 与 `cycleCount` 在系统未通过公开接口提供时为 `nil`，不视为失败（例如 macOS 27 起注册表不再发布顶层 `Temperature`）。
+        - `isCharging` 表示接着外部电源，不等于电池正在充电（如优化充电停在 80% 时仍为 `true`），落差与原因见 `MacBatteryInfo.isCharging`。
+        - 循环次数可用于评估电池健康状况，通常 Apple 建议 Mac 电池循环不超过 1000 次。
 
-     - Returns: 一个 `AnyPublisher<MacBatteryInfo, Swift.Error>`，成功时返回封装的 `MacBatteryInfo`，失败时返回错误信息。
+     - Returns: 一个 `AnyPublisher<MacBatteryInfo, SysInfoError>`，成功时输出一次 `MacBatteryInfo` 后结束。
 
      - Throws: 本方法不会直接抛出异常，但可能通过 Publisher 输出以下错误：
-        - 电池服务无法打开：`NSError(domain: "BatteryError", code: 1)`
-        - 无法获取温度：`NSError(domain: "BatteryError", code: 2)`
+        - `SysInfoError.batteryUnavailable`：IOPS 中没有内建电池，或缺少电量字段。
+        - `SysInfoError.unknown`：其他未预期错误。
 
      使用示例：
 
