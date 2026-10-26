@@ -420,43 +420,62 @@ class SystemInfoTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
     }
 
-    // MARK: - CPU 信息
+    // MARK: - CPU 占用率计算（纯函数，不依赖环境）
 
-    func testGetCPUInfoPublisher() {
-        let expectation = XCTestExpectation(description: "获取 CPU 信息")
-        
-        DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 1)
-            .prefix(1)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    if case DevelopmentKit.SysInfo.SysInfoError.cpuSnapshotFailed = error {
-                        // 合理错误
-                    } else {
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { info in
-                print("CPU 信息：\(info.model ?? "系统未提供")")
-                // model 取自没有公开文档的 sysctl 名称，nil 表示系统未提供，不视为失败；有值时不应是空字符串
-                if let model = info.model {
-                    XCTAssertFalse(model.isEmpty)
-                }
-                XCTAssertGreaterThan(info.physicalCores, 0)
-                XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores)
-                
-                let total = info.totalUsage + info.totalIdle
-                XCTAssertEqual(total.rounded(toPlaces: 1), 100.0, accuracy: 1.0)
-                XCTAssertEqual(info.coreUsages.count, info.logicalCores)
-                
-                for usage in info.coreUsages {
-                    XCTAssert(usage >= 0 && usage <= 100)
-                }
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 3.0)
+    /// 总体按 tick 加权，每核各自计算；两次读数之间没有新 tick 的核心记 0
+    func testCPUUsageFromTickDeltas() throws {
+        let previous = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
+            .init(user: 100, system: 50, idle: 800, nice: 50),
+            .init(user: 0, system: 0, idle: 1000, nice: 0),
+            .init(user: 30, system: 20, idle: 500, nice: 0)
+        ])
+        let current = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
+            .init(user: 160, system: 70, idle: 900, nice: 70),  // 已用 +100、空闲 +100：50%
+            .init(user: 10, system: 0, idle: 1090, nice: 0),    // 已用 +10、空闲 +90：10%
+            .init(user: 30, system: 20, idle: 500, nice: 0)     // 没有新的 tick：记 0
+        ])
+
+        let usage = try XCTUnwrap(DevelopmentKit.SysInfo.cpuUsage(previous: previous, current: current))
+
+        // 已用 110 / 全部 300；若按各核百分比平均，会得到 (50 + 10 + 0) / 3 = 20
+        XCTAssertEqual(usage.total, 110.0 / 300.0 * 100, accuracy: 1e-9)
+        XCTAssertEqual(usage.perCore.count, 3)
+        for (actual, expected) in zip(usage.perCore, [50.0, 10, 0]) {
+            XCTAssertEqual(actual, expected, accuracy: 1e-9)
+        }
+    }
+
+    /// 两次读数之间所有核心都没有新的 tick 时返回 nil：定时流这一拍不输出，不再除出 NaN
+    func testCPUUsageIsNilWhenNoTicksElapsed() {
+        let snapshot = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
+            .init(user: 100, system: 50, idle: 800, nice: 50),
+            .init(user: 0, system: 0, idle: 1000, nice: 0)
+        ])
+        XCTAssertNil(DevelopmentKit.SysInfo.cpuUsage(previous: snapshot, current: snapshot))
+    }
+    
+    // MARK: - host 端口引用（真实的 Mach 调用，结果确定）
+
+    /// CPU 采样用完 host 端口后必须归还发送权引用。interval 为 0 时走一次性的 Future，创建时就同步读一次系统，不必订阅
+    func testCPUSnapshotReleasesHostPortReference() {
+        // 要查询的端口：测试自己取一份引用，结束时归还
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        let before = sendRightReferences(to: host)
+
+        for _ in 0..<100 {
+            _ = DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 0)
+        }
+
+        XCTAssertEqual(sendRightReferences(to: host), before, "每次采样后引用数应回到原值")
+    }
+
+    /// 本进程对某个端口持有的发送权引用数
+    private func sendRightReferences(to port: mach_port_t) -> mach_port_urefs_t {
+        var refs: mach_port_urefs_t = 0
+        let result = mach_port_get_refs(mach_task_self_, port, MACH_PORT_RIGHT_SEND, &refs)
+        XCTAssertEqual(result, KERN_SUCCESS)
+        return refs
     }
 
     // MARK: - 磁盘空间
