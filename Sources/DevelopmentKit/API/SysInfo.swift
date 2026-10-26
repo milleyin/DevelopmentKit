@@ -307,6 +307,23 @@ extension DevelopmentKit.SysInfo {
 #endif
 }
 
+//MARK: - host 端口
+extension DevelopmentKit.SysInfo {
+
+    /**
+     取一份 host 端口的发送权交给 `body` 使用，`body` 返回后释放。
+
+     - Parameter body: 用 host 端口读取系统信息的闭包。
+     - Returns: `body` 的返回值。
+     - Important: `mach_host_self()` 每调用一次，本进程对 host 端口的发送权就多一个用户引用，必须用 `mach_port_deallocate` 成对释放，否则引用随调用次数累积。需要 host 端口时经由本方法取用，不要直接调用 `mach_host_self()`。
+     */
+    private static func withHostPort<Value>(_ body: (host_t) -> Value) -> Value {
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        return body(host)
+    }
+}
+
 //MARK: - 内存信息接口
 extension DevelopmentKit.SysInfo {
     
@@ -409,15 +426,15 @@ extension DevelopmentKit.SysInfo {
      获取当前 macOS 系统的 CPU 信息，包括型号、核心数、总体使用率及每个核心使用率。
      
      - Important: 本方法支持一次性采样与定时采样两种模式，调用方可通过 `interval` 参数控制行为：
-     - 若 `interval == 0`，将仅采样一次（结果为历史累计快照，非实时占用率）；
-     - 若 `interval > 0`，则每隔指定时间推送一次“当前 CPU 活动占用率”（基于差值计算）。
+     - 若 `interval <= 0`，将仅采样一次（结果为历史累计快照，非实时占用率）；
+     - 若 `interval > 0`，则每隔指定时间推送一次“当前 CPU 活动占用率”（基于差值计算）。第一拍只记下基准读数，第一个值在第二拍输出；某一拍读不到 CPU 状态，或与上一拍之间所有核心都没有新的 tick（间隔过短）时，这一拍不输出。
      
      - Note: 使用率的计算基于 `host_processor_info()` 返回的数据，结果单位为百分比（%）。每个核心的使用率包含用户态、系统态及 nice 态之和，不区分线程类型。支持 Apple Silicon 与 Intel 架构的 macOS 设备。型号 `model` 取自没有公开文档的 sysctl 名称，系统未提供时为 `nil`，不视为失败；用法限制见 `MacCPUInfo.model`。
      
-     - Returns: 一个 `AnyPublisher<MacCPUInfo, Error>`，成功时返回 `MacCPUInfo`，失败时返回错误信息。
+     - Returns: 一个 `AnyPublisher<MacCPUInfo, SysInfoError>`，成功时返回 `MacCPUInfo`，失败时返回错误信息。
      
-     - Throws: 不会直接抛出异常，但返回的 Publisher 可能通过 `.failure` 输出以下错误：
-     - 无法获取 CPU 使用率时返回 `NSError(domain: "CPUInfo", code: 1, ...)`。
+     - Throws: 不会直接抛出异常。只有一次性采样可能通过 `.failure` 输出错误：
+     - 读不到 CPU 状态（`host_processor_info` 失败）时输出 `SysInfoError.cpuSnapshotFailed`。
      
      使用示例：
      
@@ -430,53 +447,7 @@ extension DevelopmentKit.SysInfo {
      .store(in: &cancellables)
      ```
      */
-    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, Error> {
-        struct Snapshot {
-            let coreCount: Int
-            let values: [Double]
-        }
-
-        func readCPUTicks() -> Snapshot? {
-            var cpuCount: natural_t = 0
-            var cpuInfo: processor_info_array_t?
-            var numCPUInfo: mach_msg_type_number_t = 0
-
-            let result = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCPUInfo)
-            guard result == KERN_SUCCESS, let info = cpuInfo else { return nil }
-
-            var values: [Double] = []
-            for i in 0..<Int(cpuCount) {
-                let base = Int(CPU_STATE_MAX) * i
-                for j in 0..<Int(CPU_STATE_MAX) {
-                    values.append(Double(info[base + j]))
-                }
-            }
-
-            return Snapshot(coreCount: Int(cpuCount), values: values)
-        }
-
-        func calculateUsage(prev: Snapshot, current: Snapshot) -> (total: Double, perCore: [Double]) {
-            var totalUsed: Double = 0
-            var totalAll: Double = 0
-            var coreUsages: [Double] = []
-
-            for i in 0..<prev.coreCount {
-                let base = i * Int(CPU_STATE_MAX)
-                let userDiff = current.values[base + Int(CPU_STATE_USER)] - prev.values[base + Int(CPU_STATE_USER)]
-                let systemDiff = current.values[base + Int(CPU_STATE_SYSTEM)] - prev.values[base + Int(CPU_STATE_SYSTEM)]
-                let idleDiff = current.values[base + Int(CPU_STATE_IDLE)] - prev.values[base + Int(CPU_STATE_IDLE)]
-                let niceDiff = current.values[base + Int(CPU_STATE_NICE)] - prev.values[base + Int(CPU_STATE_NICE)]
-
-                let used = userDiff + systemDiff + niceDiff
-                let total = used + idleDiff
-
-                coreUsages.append((used / total) * 100)
-                totalUsed += used
-                totalAll += total
-            }
-
-            return ((totalUsed / totalAll) * 100, coreUsages)
-        }
+    public static func getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, SysInfoError> {
 
         func readStaticInfo() -> (model: String?, physical: Int, logical: Int) {
             var modelBuffer = [CChar](repeating: 0, count: 256)
@@ -496,28 +467,22 @@ extension DevelopmentKit.SysInfo {
         }
 
         if interval <= 0 {
-            return Future<MacCPUInfo, Error> { promise in
+            return Future<MacCPUInfo, SysInfoError> { promise in
                 let (model, physical, logical) = readStaticInfo()
                 guard let snapshot = readCPUTicks() else {
-                    promise(.failure(NSError(domain: "CPUInfo", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取 CPU 状态"])))
+                    promise(.failure(.cpuSnapshotFailed))
                     return
                 }
-
+                
                 var coreUsages: [Double] = []
-                for i in 0..<snapshot.coreCount {
-                    let base = i * Int(CPU_STATE_MAX)
-                    let user = snapshot.values[base + Int(CPU_STATE_USER)]
-                    let system = snapshot.values[base + Int(CPU_STATE_SYSTEM)]
-                    let idle = snapshot.values[base + Int(CPU_STATE_IDLE)]
-                    let nice = snapshot.values[base + Int(CPU_STATE_NICE)]
-
-                    let used = user + system + nice
-                    let total = used + idle
+                for core in snapshot.cores {
+                    let used = core.user + core.system + core.nice
+                    let total = used + core.idle
                     let percent = (used / total) * 100
                     coreUsages.append(percent)
                 }
 
-                let totalUsage = coreUsages.reduce(0, +) / Double(snapshot.coreCount)
+                let totalUsage = coreUsages.reduce(0, +) / Double(snapshot.cores.count)
                 let totalIdle = 100.0 - totalUsage
 
                 promise(.success(MacCPUInfo(
@@ -532,29 +497,109 @@ extension DevelopmentKit.SysInfo {
             .eraseToAnyPublisher()
         } else {
             let (model, physical, logical) = readStaticInfo()
-            var previous: Snapshot? = nil
+            var previous: CPUTickSnapshot? = nil
 
             return Timer.publish(every: interval, on: .main, in: .common)
                 .autoconnect()
                 .compactMap { _ in
                     guard let current = readCPUTicks() else { return nil }
                     defer { previous = current }
-                    guard let prev = previous else { return nil }
-                    let (total, perCore) = calculateUsage(prev: prev, current: current)
+                    guard let prev = previous, let usage = cpuUsage(previous: prev, current: current) else { return nil }
 
                     return MacCPUInfo(
                         model: model,
                         physicalCores: physical,
                         logicalCores: logical,
-                        totalUsage: total,
-                        totalIdle: 100 - total,
-                        coreUsages: perCore
+                        totalUsage: usage.total,
+                        totalIdle: 100 - usage.total,
+                        coreUsages: usage.perCore
                     )
                 }
-                .setFailureType(to: Error.self)
+                .setFailureType(to: SysInfoError.self)
                 .eraseToAnyPublisher()
         }
     }
+    
+    /**
+     一次 `host_processor_info` 读数：每个核心自开机以来在各状态下累计的 tick 数。
+
+     - Note: 单次读数是累计值，两次读数之差才对应这段时间内的占用，见 `cpuUsage(previous:current:)`。
+     */
+    struct CPUTickSnapshot {
+        /// 单个核心在各状态下累计的 tick 数
+        struct Core {
+            let user: Double
+            let system: Double
+            let idle: Double
+            let nice: Double
+        }
+
+        /// 各核心的读数，顺序即 `host_processor_info` 返回的处理器顺序
+        let cores: [Core]
+    }
+
+    /**
+     读取各核心自开机以来累计的 tick。
+
+     - Returns: 本次读数；`host_processor_info` 失败时为 nil。
+     - Important: `host_processor_info` 把结果放在内核为本进程新分配的缓冲区里，复制出数值后必须用 `vm_deallocate` 归还，否则每读一次漏掉一块缓冲区（至少一页）。
+     */
+    private static func readCPUTicks() -> CPUTickSnapshot? {
+        var cpuCount: natural_t = 0
+        var cpuInfo: processor_info_array_t?
+        var cpuInfoCount: mach_msg_type_number_t = 0
+
+        let result = withHostPort { host in
+            host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &cpuInfoCount)
+        }
+        guard result == KERN_SUCCESS, let info = cpuInfo else { return nil }
+        defer {
+            vm_deallocate(mach_task_self_,
+                          vm_address_t(bitPattern: info),
+                          vm_size_t(cpuInfoCount) * vm_size_t(MemoryLayout<integer_t>.stride))
+        }
+
+        let stateCount = Int(CPU_STATE_MAX)
+        let cores = (0..<Int(cpuCount)).map { index -> CPUTickSnapshot.Core in
+            let base = index * stateCount
+            return CPUTickSnapshot.Core(
+                user: Double(info[base + Int(CPU_STATE_USER)]),
+                system: Double(info[base + Int(CPU_STATE_SYSTEM)]),
+                idle: Double(info[base + Int(CPU_STATE_IDLE)]),
+                nice: Double(info[base + Int(CPU_STATE_NICE)])
+            )
+        }
+        return CPUTickSnapshot(cores: cores)
+    }
+
+    /**
+     由两次读数算出这段时间内的 CPU 占用率。
+
+     - Parameters:
+       - previous: 较早的读数。
+       - current: 较晚的读数，与 `previous` 来自同一台机器；核心数不同时，只按两者共有的前几个核心逐一配对。
+     - Returns: 总体占用率与每核占用率（%）；两次读数之间所有核心都没有新的 tick 时为 nil，表示这段间隔测不出占用。
+     - Note:
+       - 已用 = 用户态 + 系统态 + nice 态。总体占用按 tick 加权：各核已用之和除以各核全部 tick 之和，不是各核百分比的平均。
+       - 单个核心两次读数之间没有新的 tick 时，该核记 0，不除出 NaN。
+     */
+    static func cpuUsage(previous: CPUTickSnapshot, current: CPUTickSnapshot) -> (total: Double, perCore: [Double])? {
+        var usedTicks: Double = 0
+        var allTicks: Double = 0
+        var perCore: [Double] = []
+
+        for (before, after) in zip(previous.cores, current.cores) {
+            let used = (after.user - before.user) + (after.system - before.system) + (after.nice - before.nice)
+            let all = used + (after.idle - before.idle)
+            perCore.append(all > 0 ? used / all * 100 : 0)
+            usedTicks += used
+            allTicks += all
+        }
+
+        guard allTicks > 0 else { return nil }
+        return (usedTicks / allTicks * 100, perCore)
+    }
+
 
 }
 

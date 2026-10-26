@@ -76,7 +76,7 @@ Log("This is a log message")
 | String.sha256: String                                                                                                            | Compute SHA-256 hash of a string                                                 |
 | Log<T>(_ message: T, file: String, line: Int)                                                                                    | Print log message with timestamp, file name, and optionally store it in CloudKit |
 | getMemoryInfoPublisher() -> AnyPublisher<MacMemoryInfo, Error>                                                           | Fetch total, free, used, and inactive memory (in GB)                             |
-| getCPUInfoPublisher() -> AnyPublisher<MacCPUInfo, Error>    | Fetch CPU model (nil if the OS doesn't provide it), core count, usage %, and per-core usage |
+| getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, SysInfoError> | Fetch CPU model (nil if the OS doesn't provide it), core count, usage %, and per-core usage |
 | getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, SysInfoError>    | Fetch battery level, charging status, and (if the OS publishes them via public APIs) temperature and cycle count; otherwise those two are nil (macOS only) |
 | getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never>                                | Continuously observe battery level (iOS only)                                    |
 | getLocalIPAddress() -> String?                                                                                    | Get local IPv4 address (Wi-Fi or Cellular)                                       |
