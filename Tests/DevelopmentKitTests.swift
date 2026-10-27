@@ -284,7 +284,7 @@ class SystemInfoTests: XCTestCase {
 #if os(iOS)
     func testGetBatteryLevelPublisher() {
         let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
-
+        
         DevelopmentKit.SysInfo.getBatteryLevelPublisher(interval: 1.0)
             .sink(
                 receiveCompletion: { completion in
@@ -301,13 +301,13 @@ class SystemInfoTests: XCTestCase {
                 }
             )
             .store(in: &subscriptions)
-
+        
         wait(for: [expectation], timeout: 2.0)
     }
 #elseif os(macOS)
-
+    
     // MARK: - 电池信息
-
+    
     func testGetBatteryInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
         
@@ -343,7 +343,7 @@ class SystemInfoTests: XCTestCase {
     }
     
     // MARK: - 电池信息组装（纯函数，不依赖环境）
-
+    
     /// macOS 26 及以前的布局：IOPS 无温度，注册表有顶层温度（0.1 K）与循环次数
     func testMakeBatteryInfoUsesRegistryTemperatureInDeciKelvin() throws {
         let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
@@ -355,7 +355,7 @@ class SystemInfoTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(info.temperature), 30.35, accuracy: 0.001)
         XCTAssertEqual(info.cycleCount, 91)
     }
-
+    
     /// macOS 27 的布局：两个公开来源都没有温度，注册表也没有循环次数
     func testMakeBatteryInfoReturnsNilWhenSystemProvidesNothing() throws {
         let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
@@ -366,7 +366,7 @@ class SystemInfoTests: XCTestCase {
         XCTAssertNil(info.cycleCount)
         XCTAssertFalse(info.isCharging)
     }
-
+    
     /// IOPS 提供温度时优先使用（单位 °C），不再读注册表
     func testMakeBatteryInfoPrefersIOPSTemperature() throws {
         let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
@@ -375,7 +375,7 @@ class SystemInfoTests: XCTestCase {
         )
         XCTAssertEqual(info.temperature, 31)
     }
-
+    
     /// 缺少电量字段或最大容量为 0 时报 batteryUnavailable（旧实现在最大容量为 0 时会崩溃）
     func testMakeBatteryInfoRejectsInvalidCapacity() {
         let invalidDescriptions: [[String: Any]] = [
@@ -390,38 +390,53 @@ class SystemInfoTests: XCTestCase {
             }
         }
     }
+    
+    // MARK: - 内存信息组装（纯函数，不依赖环境）
 
-    // MARK: - 内存信息
+    /// 已用 = 物理内存 − 空闲页 − 文件缓存页；空闲只算空闲页。页数按 16 KiB 一页换算
+    func testMakeMemoryInfoUsesActivityMonitorDefinition() {
+        var statistics = vm_statistics64()
+        statistics.free_count = 65_536            // 1 GiB
+        statistics.external_page_count = 131_072  // 2 GiB
+        statistics.inactive_count = 196_608       // 3 GiB
 
-    func testGetMemoryInfoPublisher() {
-        let expectation = XCTestExpectation(description: "获取内存信息")
-        
-        DevelopmentKit.SysInfo.getMemoryInfoPublisher()
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    if case DevelopmentKit.SysInfo.SysInfoError.memoryReadFailure = error {
-                        // 允许的错误
-                    } else {
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { info in
-                print("内存使用情况：\(info)")
-                XCTAssertGreaterThan(info.total, 0)
-                XCTAssertGreaterThanOrEqual(info.free, 0)
-                XCTAssertGreaterThanOrEqual(info.inactive, 0)
-                XCTAssertGreaterThanOrEqual(info.used, 0)
-                XCTAssertLessThanOrEqual(info.used, info.total)
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
+        let info = DevelopmentKit.SysInfo.makeMemoryInfo(statistics: statistics, pageSize: 16_384, totalBytes: 36 * 1_073_741_824)
+
+        XCTAssertEqual(info.total, 36)
+        XCTAssertEqual(info.free, 1)
+        XCTAssertEqual(info.used, 33)
+        XCTAssertEqual(info.inactive, 3)
     }
 
-    // MARK: - CPU 占用率计算（纯函数，不依赖环境）
+    /// speculative 页既算在内核的空闲页里，也算在文件缓存页里，只能扣一次
+    func testMakeMemoryInfoSubtractsSpeculativeOnce() {
+        var statistics = vm_statistics64()
+        statistics.free_count = 98_304            // 1.5 GiB，含下面的 speculative
+        statistics.speculative_count = 32_768     // 0.5 GiB
+        statistics.external_page_count = 131_072  // 2 GiB，也含同一批 speculative
 
+        let info = DevelopmentKit.SysInfo.makeMemoryInfo(statistics: statistics, pageSize: 16_384, totalBytes: 36 * 1_073_741_824)
+
+        // 不扣 speculative：空闲 1.5、已用 32.5；扣两次：已用 33.5
+        XCTAssertEqual(info.free, 1)
+        XCTAssertEqual(info.used, 33)
+    }
+
+    /// 读数自相矛盾时不输出负数：speculative 多于空闲页时空闲取 0，空闲加缓存超过总量时已用取 0
+    func testMakeMemoryInfoClampsNegativeResultsToZero() {
+        var statistics = vm_statistics64()
+        statistics.free_count = 32_768            // 0.5 GiB
+        statistics.speculative_count = 65_536     // 1 GiB，多于空闲页
+        statistics.external_page_count = 131_072  // 2 GiB，多于下面的总量
+
+        let info = DevelopmentKit.SysInfo.makeMemoryInfo(statistics: statistics, pageSize: 16_384, totalBytes: 1_073_741_824)
+
+        XCTAssertEqual(info.free, 0)
+        XCTAssertEqual(info.used, 0)
+    }
+    
+    // MARK: - CPU 占用率计算（纯函数，不依赖环境）
+    
     /// 总体按 tick 加权，每核各自计算；两次读数之间没有新 tick 的核心记 0
     func testCPUUsageFromTickDeltas() throws {
         let previous = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
@@ -434,9 +449,9 @@ class SystemInfoTests: XCTestCase {
             .init(user: 10, system: 0, idle: 1090, nice: 0),    // 已用 +10、空闲 +90：10%
             .init(user: 30, system: 20, idle: 500, nice: 0)     // 没有新的 tick：记 0
         ])
-
+        
         let usage = try XCTUnwrap(DevelopmentKit.SysInfo.cpuUsage(previous: previous, current: current))
-
+        
         // 已用 110 / 全部 300；若按各核百分比平均，会得到 (50 + 10 + 0) / 3 = 20
         XCTAssertEqual(usage.total, 110.0 / 300.0 * 100, accuracy: 1e-9)
         XCTAssertEqual(usage.perCore.count, 3)
@@ -444,7 +459,7 @@ class SystemInfoTests: XCTestCase {
             XCTAssertEqual(actual, expected, accuracy: 1e-9)
         }
     }
-
+    
     /// 两次读数之间所有核心都没有新的 tick 时返回 nil：定时流这一拍不输出，不再除出 NaN
     func testCPUUsageIsNilWhenNoTicksElapsed() {
         let snapshot = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
@@ -455,19 +470,50 @@ class SystemInfoTests: XCTestCase {
     }
     
     // MARK: - host 端口引用（真实的 Mach 调用，结果确定）
-
+    
     /// CPU 采样用完 host 端口后必须归还发送权引用。interval 为 0 时走一次性的 Future，创建时就同步读一次系统，不必订阅
     func testCPUSnapshotReleasesHostPortReference() {
         // 要查询的端口：测试自己取一份引用，结束时归还
         let host = mach_host_self()
         defer { mach_port_deallocate(mach_task_self_, host) }
         let before = sendRightReferences(to: host)
-
+        
         for _ in 0..<100 {
             _ = DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 0)
         }
-
+        
         XCTAssertEqual(sendRightReferences(to: host), before, "每次采样后引用数应回到原值")
+    }
+    
+    /// 内存采样用完 host 端口后同样必须归还发送权引用。interval 为 0 时走一次性的 Future，创建时就同步读一次系统，不必订阅
+    func testMemorySnapshotReleasesHostPortReference() {
+        // 要查询的端口：测试自己取一份引用，结束时归还
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        let before = sendRightReferences(to: host)
+        
+        for _ in 0..<100 {
+            _ = DevelopmentKit.SysInfo.getMemoryInfoPublisher(interval: 0)
+        }
+        
+        XCTAssertEqual(sendRightReferences(to: host), before, "每次采样后引用数应回到原值")
+        
+        /*
+         开始改动前的测试结果：
+         Test Suite 'Selected tests' started at 2026-10-27 14:27:45.760.
+         Test Suite 'DevelopmentKitTests.xctest' started at 2026-10-27 14:27:45.760.
+         Test Suite 'SystemInfoTests' started at 2026-10-27 14:27:45.761.
+         Test Case '-[DevelopmentKitTests.SystemInfoTests testMemorySnapshotReleasesHostPortReference]' started.
+         /Users/mille/Github/DevelopmentKit/Tests/DevelopmentKitTests.swift:484: error: -[DevelopmentKitTests.SystemInfoTests testMemorySnapshotReleasesHostPortReference] : XCTAssertEqual failed: ("102") is not equal to ("2") - 每次采样后引用数应回到原值
+         Test Case '-[DevelopmentKitTests.SystemInfoTests testMemorySnapshotReleasesHostPortReference]' failed (0.380 seconds).
+         Test Suite 'SystemInfoTests' failed at 2026-10-27 14:27:46.141.
+              Executed 1 test, with 1 failure (0 unexpected) in 0.380 (0.381) seconds
+         Test Suite 'DevelopmentKitTests.xctest' failed at 2026-10-27 14:27:46.142.
+              Executed 1 test, with 1 failure (0 unexpected) in 0.380 (0.381) seconds
+         Test Suite 'Selected tests' failed at 2026-10-27 14:27:46.142.
+              Executed 1 test, with 1 failure (0 unexpected) in 0.380 (0.382) seconds
+         Program ended with exit code: 1
+         */
     }
 
     /// 本进程对某个端口持有的发送权引用数
