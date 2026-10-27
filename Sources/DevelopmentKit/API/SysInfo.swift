@@ -331,27 +331,28 @@ extension DevelopmentKit.SysInfo {
      获取当前 macOS 系统的内存使用信息，包括总内存、空闲内存、已使用内存与可回收内存（Inactive Memory）。
      
      - Important:
-     - interval == 0 时，一次性返回当前内存信息，非持续监测。
-     - interval > 0 时，定时通过 Timer.publish 推送内存状态；
-     - 数据单位为 **GB（四舍五入至小数点后两位）**，方便用于 UI 显示或存储记录。
+     - interval <= 0 时，一次性返回当前内存信息，非持续监测。
+     - interval > 0 时，定时通过 Timer.publish 推送内存状态，第一个值在一个间隔之后输出；
+     - 数据单位为 **GiB（1024³ 字节，四舍五入至小数点后两位）**，方便用于 UI 显示或存储记录。
      
      - Note:
      - 本方法通过 `host_statistics64()` 获取内存页数据，并结合 `sysctl` 获取总内存大小。
      - 可回收内存（`inactive`）指的是暂时未使用但可被系统回收的内存块，属于 macOS 的内存优化策略之一。
-     - 所有值已统一换算为 GB，并进行保留两位小数处理。
+     - `used` 按活动监视器“已使用内存”的口径近似：物理内存减去空闲页与文件缓存页。Apple 未公开算法；`vm_stat` 与活动监视器同时对照三组，相差在 0.2 GiB 以内。
+     - `free` 只算空闲页，不含 speculative 页，与 `vm_stat` 的 “Pages free” 同口径。
      
-     - Returns: 一个 `AnyPublisher<MacMemoryInfo, Swift.Error>`，成功时返回封装的 `MacMemoryInfo`，失败时包含系统错误信息。
+     - Returns: 一个 `AnyPublisher<MacMemoryInfo, SysInfoError>`，成功时返回封装的 `MacMemoryInfo`，失败时包含系统错误信息。
      
      - Throws: 不会直接抛出异常，但返回的 Publisher 在以下情况可能通过 `.failure` 报错：
-     - `host_statistics64()` 调用失败，返回 `NSError(domain: "MemoryError", code: 1, ...)`。
+     - 读不到内存页统计（`host_statistics64` 失败）或物理内存总量（`hw.memsize`）时，输出 `SysInfoError.memoryReadFailure`。
      
      使用示例：
      
      ```swift
      getMemoryInfoPublisher()
      .sink(receiveCompletion: { ... }, receiveValue: { memory in
-     print("总内存：\(memory.total) GB")
-     print("空闲内存：\(memory.free) GB")
+     print("总内存：\(memory.total) GiB")
+     print("空闲内存：\(memory.free) GiB")
      })
      .store(in: &cancellables)
      ```
@@ -361,9 +362,11 @@ extension DevelopmentKit.SysInfo {
             let HOST_VM_INFO64_COUNT = MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
             var stats = vm_statistics64()
             var count = mach_msg_type_number_t(HOST_VM_INFO64_COUNT)
-            let result = withUnsafeMutablePointer(to: &stats) {
-                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                    host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            let result = withHostPort { host in
+                withUnsafeMutablePointer(to: &stats) {
+                    $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                        host_statistics64(host, HOST_VM_INFO64, $0, &count)
+                    }
                 }
             }
             
@@ -374,26 +377,14 @@ extension DevelopmentKit.SysInfo {
             // 获取总内存
             var totalMemory: UInt64 = 0
             var sizeOfMem = MemoryLayout<UInt64>.size
-            sysctlbyname("hw.memsize", &totalMemory, &sizeOfMem, nil, 0)
-            
-            let pageSize = UInt64(vm_kernel_page_size)
-            let free = Double(stats.free_count) * Double(pageSize)
-            let inactive = Double(stats.inactive_count) * Double(pageSize)
-            let total = Double(totalMemory)
-            let used = total - free
-            
-            func toGB(_ bytes: Double) -> Double {
-                return (bytes / 1_073_741_824).rounded(toPlaces: 2)
+            // 读失败时总量停在 0，算出的已用和调用方的比例都没有意义，按读取失败处理
+            guard sysctlbyname("hw.memsize", &totalMemory, &sizeOfMem, nil, 0) == 0 else {
+                throw SysInfoError.memoryReadFailure
             }
             
-            return MacMemoryInfo(
-                total: toGB(total),
-                free: toGB(free),
-                used: toGB(used),
-                inactive: toGB(inactive)
-            )
+            return makeMemoryInfo(statistics: stats, pageSize: UInt64(vm_kernel_page_size), totalBytes: totalMemory)
         }
-
+        
         if interval <= 0 {
             return Future<MacMemoryInfo, SysInfoError> { promise in
                 do {
@@ -417,6 +408,37 @@ extension DevelopmentKit.SysInfo {
                 }
                 .eraseToAnyPublisher()
         }
+    }
+    
+    /**
+     由一次 `host_statistics64` 读数与物理内存总量组装内存信息（纯函数，不读取任何系统状态）。
+     
+     - Parameter statistics: `HOST_VM_INFO64` 的读数。
+     - Parameter pageSize: 每页字节数。
+     - Parameter totalBytes: 物理内存总量（字节）。
+     - Returns: 各项换算为 GiB、保留两位小数的 `MacMemoryInfo`。
+     - Note:
+     - `used` = 物理内存 − 空闲页 − 文件缓存页，按活动监视器“已使用内存”的口径近似。
+     - 内核的 `free_count` 含 speculative 页（`vm_stat` 打印 “Pages free” 时减去了它），speculative 页同时计入文件缓存页（`external_page_count`）。所以空闲页先减去 speculative，否则会扣两次。
+     - Important: 页数是 `natural_t`（UInt32），无符号相减一旦下溢会直接崩溃，所以换成 Int64 再算；读数自相矛盾时（如 speculative 多于空闲页），结果取 0，不输出负数。
+     */
+    static func makeMemoryInfo(statistics: vm_statistics64, pageSize: UInt64, totalBytes: UInt64) -> MacMemoryInfo {
+        let page = Int64(pageSize)
+        let total = Int64(totalBytes)
+        let freePages = max(Int64(statistics.free_count) - Int64(statistics.speculative_count), 0)
+        let cachedPages = Int64(statistics.external_page_count)
+        let used = max(total - (freePages + cachedPages) * page, 0)
+        
+        func toGiB(_ bytes: Int64) -> Double {
+            (Double(bytes) / 1_073_741_824).rounded(toPlaces: 2)
+        }
+        
+        return MacMemoryInfo(
+            total: toGiB(total),
+            free: toGiB(freePages * page),
+            used: toGiB(used),
+            inactive: toGiB(Int64(statistics.inactive_count) * page)
+        )
     }
 }
 

@@ -81,11 +81,15 @@ public struct MacBatteryInfo {
         self.cycleCount = cycleCount
     }
 }
-///内存结构
+/// 内存信息。各项单位为 GiB（1024³ 字节），保留两位小数
 public struct MacMemoryInfo: CustomStringConvertible {
+    /// 物理内存总量（`hw.memsize`）
     public let total: Double
+    /// 空闲内存：空闲页，不含 speculative 页
     public let free: Double
+    /// 已使用内存：物理内存减去空闲页与文件缓存页，按活动监视器“已使用内存”的口径近似
     public let used: Double
+    /// 可回收内存：inactive 页
     public let inactive: Double
 
     public init(total: Double, free: Double, used: Double, inactive: Double) {
@@ -99,10 +103,10 @@ public struct MacMemoryInfo: CustomStringConvertible {
     public var description: String {
         """
         💾 内存状态：
-        - 总内存：\(total) GB
-        - 空闲内存：\(free) GB
-        - 已使用内存：\(used) GB
-        - 可回收内存（Inactive）：\(inactive) GB
+        - 总内存：\(total) GiB
+        - 空闲内存：\(free) GiB
+        - 已使用内存：\(used) GiB
+        - 可回收内存（Inactive）：\(inactive) GiB
         """
     }
 }
