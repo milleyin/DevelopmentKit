@@ -110,6 +110,26 @@ public struct MacMemoryInfo: CustomStringConvertible {
         """
     }
 }
+
+/// 根卷的磁盘空间，单位字节
+public struct MacDiskSpace {
+    /// 总容量（`volumeTotalCapacityKey`）
+    public let totalBytes: Int
+    /// 可用容量（`volumeAvailableCapacityKey`）：不含系统可清除（purgeable）的空间，通常小于访达显示的“可用”
+    public let availableBytes: Int
+
+    public init(totalBytes: Int, availableBytes: Int) {
+        self.totalBytes = totalBytes
+        self.availableBytes = availableBytes
+    }
+
+    /// 可用比例：可用容量除以总容量；总容量不为正数时为 0
+    public var availableFraction: Double {
+        guard totalBytes > 0 else { return 0 }
+        return Double(availableBytes) / Double(totalBytes)
+    }
+}
+
 ///cpu数据结构
 public struct MacCPUInfo {
     /// 型号 / 名称（如 "Apple M3 Pro"），取自 sysctl `machdep.cpu.brand_string`；系统未提供时为 nil

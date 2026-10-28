@@ -62,7 +62,7 @@ extension DevelopmentKit.SysInfo {
      */
     public enum SysInfoError: Swift.Error {
         
-        /// 无法获取磁盘剩余空间（路径无效、权限受限或系统错误）
+        /// 无法读取根卷的磁盘空间：总容量或可用容量读不到（路径无效、权限受限或系统错误）
         case diskSpaceUnavailable
         
         /// 无法读取系统内存信息（`host_statistics64` 调用失败，或读不到物理内存总量 `hw.memsize`）

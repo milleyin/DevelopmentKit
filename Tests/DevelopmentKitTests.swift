@@ -487,30 +487,18 @@ class SystemInfoTests: XCTestCase {
         return refs
     }
 
-    // MARK: - 磁盘空间
+    // MARK: - 磁盘空间比例（纯函数，不依赖环境）
 
-    func testGetAvailableDiskSpacePublisher() {
-        let expectation = XCTestExpectation(description: "获取磁盘剩余空间")
-        
-        DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 1.0)
-            .prefix(1)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    if case DevelopmentKit.SysInfo.SysInfoError.diskSpaceUnavailable = error {
-                        // 合理错误
-                    } else {
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { space in
-                print("剩余磁盘空间：\(space) GB")
-                XCTAssertGreaterThanOrEqual(space, 0)
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 3.0)
+    /// 可用比例 = 可用容量 / 总容量
+    func testDiskSpaceAvailableFraction() {
+        let space = MacDiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 250_000_000_000)
+        XCTAssertEqual(space.availableFraction, 0.25)
+    }
+
+    /// 总容量为 0 时比例为 0，不除出 NaN
+    func testDiskSpaceAvailableFractionIsZeroWhenTotalIsZero() {
+        let space = MacDiskSpace(totalBytes: 0, availableBytes: 0)
+        XCTAssertEqual(space.availableFraction, 0)
     }
 
 #endif

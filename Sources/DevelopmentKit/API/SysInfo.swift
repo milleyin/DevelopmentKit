@@ -541,65 +541,64 @@ extension DevelopmentKit.SysInfo {
 extension DevelopmentKit.SysInfo {
 
     /**
-     获取根卷（`/`）的可用空间（GiB），并按 `interval` 定时推送。
+     获取根卷（`/`）的总容量与可用容量（字节）：订阅时先输出一次，之后按 `interval` 定时推送。
      
-     - Important: 读取所用的 `volumeAvailableCapacityKey` 属于 Apple"需声明理由的 API"（磁盘空间类）。DevelopmentKit 已在自身的 `PrivacyInfo.xcprivacy` 中申报 `NSPrivacyAccessedAPICategoryDiskSpace` / `85F4.1` （向设备使用者显示磁盘空间），调用方无需为本方法重复申报，但必须遵守该理由的约束：
+     - Important: 读取所用的 `volumeTotalCapacityKey`、`volumeAvailableCapacityKey` 属于 Apple"需声明理由的 API"（磁盘空间类）。DevelopmentKit 已在自身的 `PrivacyInfo.xcprivacy` 中申报 `NSPrivacyAccessedAPICategoryDiskSpace` / `85F4.1` （向设备使用者显示磁盘空间），调用方无需为本方法重复申报，但必须遵守该理由的约束：
         - 只在本机向用户显示；数值及其衍生信息不得离开设备（含统计上报、日志上传），也不得用于识别设备。
         - 若用它判断"空间是否足够写入或下载"，属于 `E174.1`，须在 App 自己的隐私清单中申报。
         - 若要放进用户主动提交的问题报告，属于 `7D9E.1`，同样须由 App 自己申报。
         - 按 Apple 现行文档，iOS / iPadOS / tvOS / visionOS / watchOS 强制申报（2024-05-01 起未申报的提交不被 App Store Connect 接受），macOS 未列入；本 SDK 的申报在 macOS 上没有副作用。
      
      - Note:
-        - 单位是 GiB（按 1024³ 换算后向下取整），不是系统设置、访达使用的十进制 GB，同一容量的数值约小 7%。
-        - 通常小于访达显示的"可用"：访达的口径一般还包含系统可清除（purgeable）的空间。要与访达接近，可改用 `volumeAvailableCapacityForImportantUsageKey`（同属磁盘空间类，申报不变）。
-        - 默认 `interval` 为 1 秒，但磁盘空间变化缓慢，建议调用方显式传入 60 秒以上，避免无谓耗电。
-        - 读取失败会以 `.diskSpaceUnavailable` 结束整条定时流；需要持续监听时由调用方 `.retry` 或重新订阅。
+        - 单位是字节。显示用 GiB 还是十进制 GB 由调用方决定；可用比例见 `MacDiskSpace.availableFraction`。
+        - 可用容量通常小于访达显示的"可用"：访达的口径一般还包含系统可清除（purgeable）的空间。要与访达接近，可改用 `volumeAvailableCapacityForImportantUsageKey`（同属磁盘空间类，申报不变）。
+        - 订阅时立即读一次并输出，之后每隔 `interval` 再读：间隔通常在 60 秒以上，等一个间隔才出首值，界面上就要空一分钟。
+        - 读取失败会以 `.diskSpaceUnavailable` 结束整条流。订阅时就会读，所以失败也可能在订阅当下发生：需要持续监听时，调用方重新订阅要自带延迟，无延迟的 `.retry` 会空转。
      
-     - Parameter interval: 推送间隔（秒），默认为 `1.0`。
-     - Returns: `AnyPublisher<Int, SysInfoError>`，每隔 `interval` 秒输出一次根卷可用空间（GiB）。
+     - Parameter interval: 推送间隔（秒），默认为 `60`。
+     - Returns: `AnyPublisher<MacDiskSpace, SysInfoError>`，订阅时输出一次，之后每隔 `interval` 秒输出一次根卷的总容量与可用容量。
      - Throws: 不直接抛出；读取失败时 Publisher 输出 `SysInfoError.diskSpaceUnavailable` 并结束。
      
      示例：
     ```swift
-         DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 60)
-             .sink(receiveCompletion: { _ in }, receiveValue: { availableGiB in
-                 print("当前磁盘可用空间：\(availableGiB) GiB")
+         DevelopmentKit.SysInfo.getDiskSpacePublisher()
+             .sink(receiveCompletion: { _ in }, receiveValue: { space in
+                 print("磁盘可用比例：\(space.availableFraction)")
              })
     ```
          */
-    public static func getAvailableDiskSpacePublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, SysInfoError> {
-        return Timer.publish(every: interval, on: .main, in: .common)
-                .autoconnect()
-                .tryMap { _ in
-                    guard let gib = getAvailableDiskSpaceInGiB() else {
-                        throw SysInfoError.diskSpaceUnavailable
-                    }
-                    return gib
-                }
+    public static func getDiskSpacePublisher(interval: TimeInterval = 60) -> AnyPublisher<MacDiskSpace, SysInfoError> {
+        Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .map { _ in () }
+            // 先补一拍：间隔通常在 60 秒以上，首值不能等一个间隔
+            .prepend(())
+            .tryMap { _ in
+                try readDiskSpace()
+            }
             .mapError { error in
                 (error as? SysInfoError) ?? .unknown(error)
             }
             .eraseToAnyPublisher()
     }
 
-    /// 获取根卷可用空间（单位：GiB，按 1024³ 换算后向下取整）；读取失败时为 nil
-    private static func getAvailableDiskSpaceInGiB() -> Int? {
-        // 获取根目录路径（也可以替换为其他目录）
-        let path = URL(fileURLWithPath: "/")
-        
+    /**
+     读取根卷的总容量与可用容量。
+
+     - Returns: 根卷的 `MacDiskSpace`（字节）。
+     - Throws: `SysInfoError.diskSpaceUnavailable`：读取失败，或系统没有给出其中任一项。
+     - Note: 两项在同一次 `resourceValues(forKeys:)` 调用里读出。
+     */
+    private static func readDiskSpace() throws -> MacDiskSpace {
+        let values: URLResourceValues
         do {
-            // 只请求真正用到的键：volumeTotalCapacityKey 同属"需声明理由的 API"，读了不用也算使用
-            let values = try path.resourceValues(forKeys: [.volumeAvailableCapacityKey])
-            
-            // 将字节转换为 GiB（1 GiB = 1024 * 1024 * 1024 bytes）
-            if let availableCapacity = values.volumeAvailableCapacity {
-                return Int(availableCapacity / (1024 * 1024 * 1024))  // 转换为 GiB
-            } else {
-                return nil  // 如果获取不到可用容量，返回 nil
-            }
+            values = try URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
         } catch {
-            print("无法获取磁盘信息: \(error.localizedDescription)")
-            return nil
+            throw SysInfoError.diskSpaceUnavailable
         }
+        guard let total = values.volumeTotalCapacity, let available = values.volumeAvailableCapacity else {
+            throw SysInfoError.diskSpaceUnavailable
+        }
+        return MacDiskSpace(totalBytes: total, availableBytes: available)
     }
 }
