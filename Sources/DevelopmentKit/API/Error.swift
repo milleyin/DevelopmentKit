@@ -27,7 +27,7 @@ extension DevelopmentKit.Network {
         case unableToDetermineNetworkType
         
 #if os(macOS)
-        /// 无法获取到 Wi-Fi 接口或 RSSI 值（getWiFiSignalLevelPublisher）
+        /// 没有可用的 Wi-Fi 接口（getWiFiSignalLevelPublisher）。接口在但没有加入网络时不算失败，输出 `.disconnected`
         case wifiInterfaceUnavailable
         /// 网络吞吐率采样失败（getSystemNetworkThroughputPublisher）
         case throughputUnavailable
@@ -62,24 +62,17 @@ extension DevelopmentKit.SysInfo {
      */
     public enum SysInfoError: Swift.Error {
         
-        /// 无法获取磁盘剩余空间（路径无效、权限受限或系统错误）
+        /// 无法读取根卷的磁盘空间：总容量或可用容量读不到（路径无效、权限受限或系统错误）
         case diskSpaceUnavailable
         
-        /// 无法读取系统内存信息（`host_statistics64` 调用失败）
+        /// 无法读取系统内存信息（`host_statistics64` 调用失败，或读不到物理内存总量 `hw.memsize`）
         case memoryReadFailure
         
         /// 无法获取 CPU 快照（可能是 `host_processor_info` 失败）
         case cpuSnapshotFailed
         
-        /// CPU 占用率计算失败（数据结构异常或除以零）
-        case cpuCalculationFailed
-        
         /// 无法取得内建电池信息（如台式机、无电池设备，或 IOPS 缺少电量字段）
         case batteryUnavailable
-        
-        /// 无法读取电池温度（`AppleSmartBattery` 数据缺失）
-        @available(*, deprecated, message: "温度改为 MacBatteryInfo.temperature 为 nil，不再产生此错误；下一提交物理删除")
-        case temperatureUnavailable
         
         /// 未知错误（将其他系统错误封装）
         case unknown(Error)

@@ -12,7 +12,7 @@ import Foundation
 
 public enum DevelopmentKit {
     
-    public static let version: String = "0.0.11(2026068)"
+    public static let version: String = "0.0.12(2026071)"
 
     /// 网络功能命名空间
     public enum Network {}

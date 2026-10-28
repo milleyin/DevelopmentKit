@@ -18,7 +18,6 @@ class DevelopmentKitTests: XCTestCase {
     
     var subscriptions = Set<AnyCancellable>()
     
-    
     /// 测试 `isPreview` 是否正确检测 SwiftUI 预览模式
     func testIsPreview() {
         let previewEnv = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"]
@@ -67,12 +66,6 @@ class DevelopmentKitTests: XCTestCase {
         XCTAssertTrue(true, "无效 URL 应该不会崩溃")
 #endif
     }
-    
-    
-    
-    
-    
-    
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
@@ -210,34 +203,19 @@ class NetworkTests: XCTestCase {
     }
     
 #if os(macOS)
-    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回或报错
-    func testWiFiSignalLevelPublisher() {
-        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级或错误")
-        
-        DevelopmentKit.Network
-            .getWiFiSignalLevelPublisher(interval: 0.5)
-            .prefix(1)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    switch error {
-                    case .wifiInterfaceUnavailable, .unknown:
-                        break // 允许的错误
-                    default:
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { level in
-                let allCases: [WiFiSignalLevel] = [
-                    .excellent, .good, .fair, .weak, .poor, .disconnected
-                ]
-                XCTAssertTrue(allCases.contains(level),
-                              "返回的信号等级应在合法枚举中: \(level)")
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
+    /// RSSI 落在各档边界时的等级：0 是没有加入网络，-1 起才是信号
+    func testSignalLevelBoundaries() {
+        let cases: [(rssi: Int, level: WiFiSignalLevel)] = [
+            (0, .disconnected),
+            (-1, .excellent), (-50, .excellent),
+            (-51, .good), (-65, .good),
+            (-66, .fair), (-75, .fair),
+            (-76, .weak), (-85, .weak),
+            (-86, .poor)
+        ]
+        for (rssi, level) in cases {
+            XCTAssertEqual(DevelopmentKit.Network.signalLevel(fromRSSI: rssi), level, "RSSI \(rssi)")
+        }
     }
     
     /// 测试 `getSystemNetworkThroughputPublisher` 能正确返回基准和实际值
@@ -284,7 +262,7 @@ class SystemInfoTests: XCTestCase {
 #if os(iOS)
     func testGetBatteryLevelPublisher() {
         let expectation = XCTestExpectation(description: "获取 iOS 电池电量")
-
+        
         DevelopmentKit.SysInfo.getBatteryLevelPublisher(interval: 1.0)
             .sink(
                 receiveCompletion: { completion in
@@ -301,13 +279,13 @@ class SystemInfoTests: XCTestCase {
                 }
             )
             .store(in: &subscriptions)
-
+        
         wait(for: [expectation], timeout: 2.0)
     }
 #elseif os(macOS)
-
+    
     // MARK: - 电池信息
-
+    
     func testGetBatteryInfoPublisher() {
         let expectation = XCTestExpectation(description: "获取 macOS 电池信息")
         
@@ -343,7 +321,7 @@ class SystemInfoTests: XCTestCase {
     }
     
     // MARK: - 电池信息组装（纯函数，不依赖环境）
-
+    
     /// macOS 26 及以前的布局：IOPS 无温度，注册表有顶层温度（0.1 K）与循环次数
     func testMakeBatteryInfoUsesRegistryTemperatureInDeciKelvin() throws {
         let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
@@ -355,7 +333,7 @@ class SystemInfoTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(info.temperature), 30.35, accuracy: 0.001)
         XCTAssertEqual(info.cycleCount, 91)
     }
-
+    
     /// macOS 27 的布局：两个公开来源都没有温度，注册表也没有循环次数
     func testMakeBatteryInfoReturnsNilWhenSystemProvidesNothing() throws {
         let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
@@ -366,7 +344,7 @@ class SystemInfoTests: XCTestCase {
         XCTAssertNil(info.cycleCount)
         XCTAssertFalse(info.isCharging)
     }
-
+    
     /// IOPS 提供温度时优先使用（单位 °C），不再读注册表
     func testMakeBatteryInfoPrefersIOPSTemperature() throws {
         let info = try DevelopmentKit.SysInfo.makeBatteryInfo(
@@ -375,7 +353,7 @@ class SystemInfoTests: XCTestCase {
         )
         XCTAssertEqual(info.temperature, 31)
     }
-
+    
     /// 缺少电量字段或最大容量为 0 时报 batteryUnavailable（旧实现在最大容量为 0 时会崩溃）
     func testMakeBatteryInfoRejectsInvalidCapacity() {
         let invalidDescriptions: [[String: Any]] = [
@@ -390,99 +368,137 @@ class SystemInfoTests: XCTestCase {
             }
         }
     }
+    
+    // MARK: - 内存信息组装（纯函数，不依赖环境）
 
-    // MARK: - 内存信息
+    /// 已用 = 物理内存 − 空闲页 − 文件缓存页；空闲只算空闲页。页数按 16 KiB 一页换算
+    func testMakeMemoryInfoUsesActivityMonitorDefinition() {
+        var statistics = vm_statistics64()
+        statistics.free_count = 65_536            // 1 GiB
+        statistics.external_page_count = 131_072  // 2 GiB
+        statistics.inactive_count = 196_608       // 3 GiB
 
-    func testGetMemoryInfoPublisher() {
-        let expectation = XCTestExpectation(description: "获取内存信息")
-        
-        DevelopmentKit.SysInfo.getMemoryInfoPublisher()
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    if case DevelopmentKit.SysInfo.SysInfoError.memoryReadFailure = error {
-                        // 允许的错误
-                    } else {
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { info in
-                print("内存使用情况：\(info)")
-                XCTAssertGreaterThan(info.total, 0)
-                XCTAssertGreaterThanOrEqual(info.free, 0)
-                XCTAssertGreaterThanOrEqual(info.inactive, 0)
-                XCTAssertGreaterThanOrEqual(info.used, 0)
-                XCTAssertLessThanOrEqual(info.used, info.total)
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
+        let info = DevelopmentKit.SysInfo.makeMemoryInfo(statistics: statistics, pageSize: 16_384, totalBytes: 36 * 1_073_741_824)
+
+        XCTAssertEqual(info.total, 36)
+        XCTAssertEqual(info.free, 1)
+        XCTAssertEqual(info.used, 33)
+        XCTAssertEqual(info.inactive, 3)
     }
 
-    // MARK: - CPU 信息
+    /// speculative 页既算在内核的空闲页里，也算在文件缓存页里，只能扣一次
+    func testMakeMemoryInfoSubtractsSpeculativeOnce() {
+        var statistics = vm_statistics64()
+        statistics.free_count = 98_304            // 1.5 GiB，含下面的 speculative
+        statistics.speculative_count = 32_768     // 0.5 GiB
+        statistics.external_page_count = 131_072  // 2 GiB，也含同一批 speculative
 
-    func testGetCPUInfoPublisher() {
-        let expectation = XCTestExpectation(description: "获取 CPU 信息")
-        
-        DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 1)
-            .prefix(1)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    if case DevelopmentKit.SysInfo.SysInfoError.cpuSnapshotFailed = error {
-                        // 合理错误
-                    } else {
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { info in
-                print("CPU 信息：\(info.model ?? "系统未提供")")
-                // model 取自没有公开文档的 sysctl 名称，nil 表示系统未提供，不视为失败；有值时不应是空字符串
-                if let model = info.model {
-                    XCTAssertFalse(model.isEmpty)
-                }
-                XCTAssertGreaterThan(info.physicalCores, 0)
-                XCTAssertGreaterThanOrEqual(info.logicalCores, info.physicalCores)
-                
-                let total = info.totalUsage + info.totalIdle
-                XCTAssertEqual(total.rounded(toPlaces: 1), 100.0, accuracy: 1.0)
-                XCTAssertEqual(info.coreUsages.count, info.logicalCores)
-                
-                for usage in info.coreUsages {
-                    XCTAssert(usage >= 0 && usage <= 100)
-                }
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 3.0)
+        let info = DevelopmentKit.SysInfo.makeMemoryInfo(statistics: statistics, pageSize: 16_384, totalBytes: 36 * 1_073_741_824)
+
+        // 不扣 speculative：空闲 1.5、已用 32.5；扣两次：已用 33.5
+        XCTAssertEqual(info.free, 1)
+        XCTAssertEqual(info.used, 33)
     }
 
-    // MARK: - 磁盘空间
+    /// 读数自相矛盾时不输出负数：speculative 多于空闲页时空闲取 0，空闲加缓存超过总量时已用取 0
+    func testMakeMemoryInfoClampsNegativeResultsToZero() {
+        var statistics = vm_statistics64()
+        statistics.free_count = 32_768            // 0.5 GiB
+        statistics.speculative_count = 65_536     // 1 GiB，多于空闲页
+        statistics.external_page_count = 131_072  // 2 GiB，多于下面的总量
 
-    func testGetAvailableDiskSpacePublisher() {
-        let expectation = XCTestExpectation(description: "获取磁盘剩余空间")
+        let info = DevelopmentKit.SysInfo.makeMemoryInfo(statistics: statistics, pageSize: 16_384, totalBytes: 1_073_741_824)
+
+        XCTAssertEqual(info.free, 0)
+        XCTAssertEqual(info.used, 0)
+    }
+    
+    // MARK: - CPU 占用率计算（纯函数，不依赖环境）
+    
+    /// 总体按 tick 加权，每核各自计算；两次读数之间没有新 tick 的核心记 0
+    func testCPUUsageFromTickDeltas() throws {
+        let previous = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
+            .init(user: 100, system: 50, idle: 800, nice: 50),
+            .init(user: 0, system: 0, idle: 1000, nice: 0),
+            .init(user: 30, system: 20, idle: 500, nice: 0)
+        ])
+        let current = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
+            .init(user: 160, system: 70, idle: 900, nice: 70),  // 已用 +100、空闲 +100：50%
+            .init(user: 10, system: 0, idle: 1090, nice: 0),    // 已用 +10、空闲 +90：10%
+            .init(user: 30, system: 20, idle: 500, nice: 0)     // 没有新的 tick：记 0
+        ])
         
-        DevelopmentKit.SysInfo.getAvailableDiskSpacePublisher(interval: 1.0)
-            .prefix(1)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    if case DevelopmentKit.SysInfo.SysInfoError.diskSpaceUnavailable = error {
-                        // 合理错误
-                    } else {
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { space in
-                print("剩余磁盘空间：\(space) GB")
-                XCTAssertGreaterThanOrEqual(space, 0)
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
+        let usage = try XCTUnwrap(DevelopmentKit.SysInfo.cpuUsage(previous: previous, current: current))
         
-        wait(for: [expectation], timeout: 3.0)
+        // 已用 110 / 全部 300；若按各核百分比平均，会得到 (50 + 10 + 0) / 3 = 20
+        XCTAssertEqual(usage.total, 110.0 / 300.0 * 100, accuracy: 1e-9)
+        XCTAssertEqual(usage.perCore.count, 3)
+        for (actual, expected) in zip(usage.perCore, [50.0, 10, 0]) {
+            XCTAssertEqual(actual, expected, accuracy: 1e-9)
+        }
+    }
+    
+    /// 两次读数之间所有核心都没有新的 tick 时返回 nil：定时流这一拍不输出，不再除出 NaN
+    func testCPUUsageIsNilWhenNoTicksElapsed() {
+        let snapshot = DevelopmentKit.SysInfo.CPUTickSnapshot(cores: [
+            .init(user: 100, system: 50, idle: 800, nice: 50),
+            .init(user: 0, system: 0, idle: 1000, nice: 0)
+        ])
+        XCTAssertNil(DevelopmentKit.SysInfo.cpuUsage(previous: snapshot, current: snapshot))
+    }
+    
+    // MARK: - host 端口引用（真实的 Mach 调用，结果确定）
+    
+    /// CPU 采样用完 host 端口后必须归还发送权引用。interval 为 0 时走一次性的 Future，创建时就同步读一次系统，不必订阅
+    func testCPUSnapshotReleasesHostPortReference() {
+        // 要查询的端口：测试自己取一份引用，结束时归还
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        let before = sendRightReferences(to: host)
+        
+        for _ in 0..<100 {
+            _ = DevelopmentKit.SysInfo.getCPUInfoPublisher(interval: 0)
+        }
+        
+        XCTAssertEqual(sendRightReferences(to: host), before, "每次采样后引用数应回到原值")
+    }
+    
+    /// 内存采样用完 host 端口后同样必须归还发送权引用。interval 为 0 时走一次性的 Future，创建时就同步读一次系统，不必订阅
+    /// 反测（改实现之前）：引用数从 2 变成 102，每次采样漏一个引用，测试失败
+    func testMemorySnapshotReleasesHostPortReference() {
+        // 要查询的端口：测试自己取一份引用，结束时归还
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        let before = sendRightReferences(to: host)
+        
+        for _ in 0..<100 {
+            _ = DevelopmentKit.SysInfo.getMemoryInfoPublisher(interval: 0)
+        }
+        
+        XCTAssertEqual(sendRightReferences(to: host), before, "每次采样后引用数应回到原值")
+        
+    }
+
+    /// 本进程对某个端口持有的发送权引用数
+    private func sendRightReferences(to port: mach_port_t) -> mach_port_urefs_t {
+        var refs: mach_port_urefs_t = 0
+        let result = mach_port_get_refs(mach_task_self_, port, MACH_PORT_RIGHT_SEND, &refs)
+        XCTAssertEqual(result, KERN_SUCCESS)
+        return refs
+    }
+
+    // MARK: - 磁盘空间比例（纯函数，不依赖环境）
+
+    /// 可用比例 = 可用容量 / 总容量
+    func testDiskSpaceAvailableFraction() {
+        let space = MacDiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 250_000_000_000)
+        XCTAssertEqual(space.availableFraction, 0.25)
+    }
+
+    /// 总容量为 0 时比例为 0，不除出 NaN
+    func testDiskSpaceAvailableFractionIsZeroWhenTotalIsZero() {
+        let space = MacDiskSpace(totalBytes: 0, availableBytes: 0)
+        XCTAssertEqual(space.availableFraction, 0)
     }
 
 #endif

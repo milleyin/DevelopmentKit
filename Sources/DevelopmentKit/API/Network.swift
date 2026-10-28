@@ -108,25 +108,26 @@ extension DevelopmentKit.Network {
      获取当前 macOS 设备的 Wi-Fi 信号强度等级，以 Publisher 方式定时推送。
      
      - Important:
-     - 本方法仅适用于 macOS，使用 `CoreWLAN` 框架读取当前 Wi-Fi 接口的 RSSI 值。
-     - 若无法获取到接口或 RSSI 值，将抛出 `NetworkError.wifiInterfaceUnavailable`。
+        - 本方法仅适用于 macOS，使用 `CoreWLAN` 框架读取当前 Wi-Fi 接口的 RSSI 值。
+        - 接口在但没有加入网络时（包括关闭 Wi-Fi），RSSI 为 0，输出 `.disconnected`。
+        - 没有 Wi-Fi 接口时，以 `NetworkError.wifiInterfaceUnavailable` 结束。
      - Note:
-     - 返回值为自定义的 `WiFiSignalLevel`（`.excellent`, `.good`, `.fair`, `.weak`, `.poor`, `.disconnected`）。
-     - 使用 `Timer.publish` 实现定时，默认每秒推送一次；通过 `interval` 参数可自定义间隔。
-     - 连续相同等级不会重复推送（通过 `removeDuplicates()` 处理）。
+        - 返回值为自定义的 `WiFiSignalLevel`（`.excellent`, `.good`, `.fair`, `.weak`, `.poor`, `.disconnected`）。
+        - 使用 `Timer.publish` 实现定时，默认每秒推送一次，第一个值在一个间隔之后输出；通过 `interval` 参数可自定义间隔。
+        - 连续相同等级不会重复推送（通过 `removeDuplicates()` 处理）。
      
      - Parameter interval: 检测间隔（秒），默认 `1.0`。
-     - Returns: `AnyPublisher<WiFiSignalLevel, NetworkError>`，失败时通过 `.failure(.wifiInterfaceUnavailable)` 或 `.failure(.unknown(_))` 通知。
+     - Returns: `AnyPublisher<WiFiSignalLevel, NetworkError>`，没有 Wi-Fi 接口时通过 `.failure(.wifiInterfaceUnavailable)` 通知。
      */
     public static func getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, NetworkError> {
         Timer.publish(every: interval, on: .main, in: .common)
             .autoconnect()
             .tryMap { _ in
-                // 取 RSSI，若失败则报错
+                // interface() 为 nil 即没有 Wi-Fi 接口；没加入网络时 rssiValue() 是 0，不算失败
                 guard let rssi = CWWiFiClient.shared().interface()?.rssiValue() else {
                     throw NetworkError.wifiInterfaceUnavailable
                 }
-                return signalLevel(from: rssi)
+                return signalLevel(fromRSSI: rssi)
             }
             .mapError { error in
                 // 转为 NetworkError
@@ -306,14 +307,13 @@ extension DevelopmentKit.Network {
      
      - Parameter rssi: Wi-Fi RSSI（单位 dBm）
      - Returns: 对应的 `WiFiSignalLevel`
+     - Note: 接口没有加入网络时 `rssiValue()` 返回 0（Apple 文档），按未连接处理。关闭 Wi-Fi 时接口仍在、不报错，也属于这种情况（实测）。
      */
-    private static func signalLevel(from rssi: Int?) -> WiFiSignalLevel {
-        guard let rssi = rssi else {
-            return .disconnected
-        }
-        
+    static func signalLevel(fromRSSI rssi: Int) -> WiFiSignalLevel {
         switch rssi {
-        case (-50)...0:
+        case 0:
+            return .disconnected
+        case (-50)...(-1):
             return .excellent
         case (-65)...(-51):
             return .good
