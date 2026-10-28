@@ -27,7 +27,7 @@ extension DevelopmentKit.Network {
         case unableToDetermineNetworkType
         
 #if os(macOS)
-        /// 无法获取到 Wi-Fi 接口或 RSSI 值（getWiFiSignalLevelPublisher）
+        /// 没有可用的 Wi-Fi 接口（getWiFiSignalLevelPublisher）。接口在但没有加入网络时不算失败，输出 `.disconnected`
         case wifiInterfaceUnavailable
         /// 网络吞吐率采样失败（getSystemNetworkThroughputPublisher）
         case throughputUnavailable

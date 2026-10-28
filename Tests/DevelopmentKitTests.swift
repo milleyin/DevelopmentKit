@@ -210,34 +210,19 @@ class NetworkTests: XCTestCase {
     }
     
 #if os(macOS)
-    /// 测试 `getWiFiSignalLevelPublisher` 能正确返回或报错
-    func testWiFiSignalLevelPublisher() {
-        let expectation = XCTestExpectation(description: "接收到 Wi-Fi 信号等级或错误")
-        
-        DevelopmentKit.Network
-            .getWiFiSignalLevelPublisher(interval: 0.5)
-            .prefix(1)
-            .sink(receiveCompletion: { completion in
-                if case .failure(let error) = completion {
-                    switch error {
-                    case .wifiInterfaceUnavailable, .unknown:
-                        break // 允许的错误
-                    default:
-                        XCTFail("出现未预期的错误：\(error)")
-                    }
-                    expectation.fulfill()
-                }
-            }, receiveValue: { level in
-                let allCases: [WiFiSignalLevel] = [
-                    .excellent, .good, .fair, .weak, .poor, .disconnected
-                ]
-                XCTAssertTrue(allCases.contains(level),
-                              "返回的信号等级应在合法枚举中: \(level)")
-                expectation.fulfill()
-            })
-            .store(in: &subscriptions)
-        
-        wait(for: [expectation], timeout: 2.0)
+    /// RSSI 落在各档边界时的等级：0 是没有加入网络，-1 起才是信号
+    func testSignalLevelBoundaries() {
+        let cases: [(rssi: Int, level: WiFiSignalLevel)] = [
+            (0, .disconnected),
+            (-1, .excellent), (-50, .excellent),
+            (-51, .good), (-65, .good),
+            (-66, .fair), (-75, .fair),
+            (-76, .weak), (-85, .weak),
+            (-86, .poor)
+        ]
+        for (rssi, level) in cases {
+            XCTAssertEqual(DevelopmentKit.Network.signalLevel(fromRSSI: rssi), level, "RSSI \(rssi)")
+        }
     }
     
     /// 测试 `getSystemNetworkThroughputPublisher` 能正确返回基准和实际值
