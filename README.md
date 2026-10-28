@@ -78,10 +78,10 @@ Log("This is a log message")
 | getMemoryInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacMemoryInfo, SysInfoError>                                                           | Fetch total, free, used, and inactive memory (in GiB); `used` approximates Activity Monitor's Memory Used (physical memory minus free and file-backed pages)                             |
 | getCPUInfoPublisher(interval: TimeInterval = 1) -> AnyPublisher<MacCPUInfo, SysInfoError> | Fetch CPU model (nil if the OS doesn't provide it), core count, usage %, and per-core usage |
 | getBatteryInfoPublisher() -> AnyPublisher<MacBatteryInfo, SysInfoError>    | Fetch battery level, charging status, and (if the OS publishes them via public APIs) temperature and cycle count; otherwise those two are nil (macOS only) |
-| getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, Never>                                | Continuously observe battery level (iOS only)                                    |
+| getBatteryLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<Int, SysInfoError>                                | Continuously observe battery level (iOS only)                                    |
 | getLocalIPAddress() -> String?                                                                                    | Get local IPv4 address (Wi-Fi or Cellular)                                       |
-| getSystemNetworkThroughputPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<SystemNetworkThroughput, Never> | Observe network throughput (upload/download bytes per second)                    |
-| getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, Never>                 | Observe current Wi-Fi signal strength level (macOS only)                         |
+| getSystemNetworkThroughputPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<SystemNetworkThroughput, NetworkError> | Observe network throughput (upload/download bytes per second)                    |
+| getWiFiSignalLevelPublisher(interval: TimeInterval = 1.0) -> AnyPublisher<WiFiSignalLevel, NetworkError>                 | Observe current Wi-Fi signal strength level (macOS only); `.disconnected` when not joined to a network (RSSI 0), including Wi-Fi turned off                         |
 | getNetworkTypePublisher(timeout: TimeInterval = 0.5) -> AnyPublisher<NetworkType, NetworkError>                   | Get current network connection type with optional timeout                        |
 | `LaunchAtLoginManager.shared.setEnabled(Bool)` | Enable or disable macOS app launch at login |
 | `LaunchAtLoginManager.shared.isEnabled: Bool` | Check whether launch at login is currently enabled |
