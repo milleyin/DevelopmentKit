@@ -18,7 +18,6 @@ class DevelopmentKitTests: XCTestCase {
     
     var subscriptions = Set<AnyCancellable>()
     
-    
     /// 测试 `isPreview` 是否正确检测 SwiftUI 预览模式
     func testIsPreview() {
         let previewEnv = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"]
@@ -67,12 +66,6 @@ class DevelopmentKitTests: XCTestCase {
         XCTAssertTrue(true, "无效 URL 应该不会崩溃")
 #endif
     }
-    
-    
-    
-    
-    
-    
     
     /// 测试 `copyToClipboard(text:)` 是否正确复制文本
     func testCopyToClipboard() {
