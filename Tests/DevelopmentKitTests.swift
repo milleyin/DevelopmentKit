@@ -486,6 +486,7 @@ class SystemInfoTests: XCTestCase {
     }
     
     /// 内存采样用完 host 端口后同样必须归还发送权引用。interval 为 0 时走一次性的 Future，创建时就同步读一次系统，不必订阅
+    /// 反测（改实现之前）：引用数从 2 变成 102，每次采样漏一个引用，测试失败
     func testMemorySnapshotReleasesHostPortReference() {
         // 要查询的端口：测试自己取一份引用，结束时归还
         let host = mach_host_self()
@@ -498,22 +499,6 @@ class SystemInfoTests: XCTestCase {
         
         XCTAssertEqual(sendRightReferences(to: host), before, "每次采样后引用数应回到原值")
         
-        /*
-         开始改动前的测试结果：
-         Test Suite 'Selected tests' started at 2026-10-27 14:27:45.760.
-         Test Suite 'DevelopmentKitTests.xctest' started at 2026-10-27 14:27:45.760.
-         Test Suite 'SystemInfoTests' started at 2026-10-27 14:27:45.761.
-         Test Case '-[DevelopmentKitTests.SystemInfoTests testMemorySnapshotReleasesHostPortReference]' started.
-         /Users/mille/Github/DevelopmentKit/Tests/DevelopmentKitTests.swift:484: error: -[DevelopmentKitTests.SystemInfoTests testMemorySnapshotReleasesHostPortReference] : XCTAssertEqual failed: ("102") is not equal to ("2") - 每次采样后引用数应回到原值
-         Test Case '-[DevelopmentKitTests.SystemInfoTests testMemorySnapshotReleasesHostPortReference]' failed (0.380 seconds).
-         Test Suite 'SystemInfoTests' failed at 2026-10-27 14:27:46.141.
-              Executed 1 test, with 1 failure (0 unexpected) in 0.380 (0.381) seconds
-         Test Suite 'DevelopmentKitTests.xctest' failed at 2026-10-27 14:27:46.142.
-              Executed 1 test, with 1 failure (0 unexpected) in 0.380 (0.381) seconds
-         Test Suite 'Selected tests' failed at 2026-10-27 14:27:46.142.
-              Executed 1 test, with 1 failure (0 unexpected) in 0.380 (0.382) seconds
-         Program ended with exit code: 1
-         */
     }
 
     /// 本进程对某个端口持有的发送权引用数
