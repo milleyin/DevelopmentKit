@@ -109,16 +109,6 @@ extension DevelopmentKit.SysInfo {
         .eraseToAnyPublisher()
     }
     
-    // 打开电池服务
-    @available(*, deprecated, message: "残留：已由 readPowerSourceRegistryProperties() 取代，下一提交物理删除")
-    private static func openBatteryService(_ service: inout io_service_t) -> kern_return_t {
-        service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
-        if service == 0 {
-            return kIOReturnNotFound
-        }
-        return kIOReturnSuccess
-    }
-    
     // 关闭电池服务连接
     private static func closeBatteryService(_ service: io_service_t) {
         IOObjectRelease(service)
@@ -225,84 +215,6 @@ extension DevelopmentKit.SysInfo {
             temperature: temperature,
             cycleCount: registryProperties[kIOPMPSCycleCountKey] as? Int
         )
-    }
-//    private static func getMacBatteryInfo() -> MacBatteryInfo {
-//        var batteryInfo = MacBatteryInfo()
-//        
-//        _ = IOPSCopyPowerSourcesInfo()
-//        
-//        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
-//            return batteryInfo  // 如果获取电池信息失败，返回默认值
-//        }
-//        
-//        guard let sources: NSArray = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() else {
-//            return batteryInfo  // 如果获取电池源失败，返回默认值
-//        }
-//        
-//        // 遍历每个电池源
-//        for ps in sources {
-//            guard let info: NSDictionary = IOPSGetPowerSourceDescription(snapshot, ps as CFTypeRef)?.takeUnretainedValue() else {
-//                continue  // 如果获取电池信息失败，则跳过
-//            }
-//            
-//            // 获取电池最大容量、电量、充电状态
-//            if let capacity = info[kIOPSMaxCapacityKey] as? Int,
-//               let currentCapacity = info[kIOPSCurrentCapacityKey] as? Int {
-//                batteryInfo.maxCapacity = capacity
-//                batteryInfo.level = Int((Float(currentCapacity) / Float(capacity)) * 100)
-//            }
-//            
-//            // 获取充电状态
-//            if let powerState = info[kIOPSPowerSourceStateKey] as? String {
-//                batteryInfo.isCharging = (powerState == kIOPSACPowerValue)
-//            }
-//            
-//            // 获取电池温度
-//            let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
-//            if service != 0 {
-//                let temp = getBatteryTemperature(service)
-//                if temp != -1 {
-//                    batteryInfo.temperature = temp
-//                }
-//                let cycleCount = getBatteryCycleCount(service)
-//                if cycleCount != -1 {
-//                    batteryInfo.cycleCount = cycleCount
-//                }
-//                IOObjectRelease(service)  // 释放服务
-//            }
-//            
-//            break  // 获取到电池信息后直接跳出循环
-//        }
-//        
-//        return batteryInfo
-//    }
-    
-    // 获取电池温度（摄氏度）
-    @available(*, deprecated, message: "残留：已由 readPowerSourceRegistryProperties() + makeBatteryInfo 取代，下一提交物理删除")
-    private static func getBatteryTemperature(_ service: io_service_t) -> Double {
-        let prop = IORegistryEntryCreateCFProperty(service,
-                                                   "Temperature" as CFString?,  // 使用字符串 "Temperature" 来代替 Key.Temperature
-                                                   kCFAllocatorDefault, 0)
-        
-        guard let temperatureProp = prop?.takeUnretainedValue() as? Double else {
-            return -1  // 如果没有温度数据，返回 -1
-        }
-        
-        // 从开尔文转为摄氏度
-        let temperatureInCelsius = temperatureProp / 100.0
-        
-        return temperatureInCelsius
-    }
-    /// 获取电池循环次数
-    @available(*, deprecated, message: "残留：已由 readPowerSourceRegistryProperties() + makeBatteryInfo 取代，下一提交物理删除")
-    private static func getBatteryCycleCount(_ service: io_service_t) -> Int {
-        let prop = IORegistryEntryCreateCFProperty(service,
-                                                   "CycleCount" as CFString?,
-                                                   kCFAllocatorDefault, 0)
-        guard let count = prop?.takeUnretainedValue() as? Int else {
-            return -1
-        }
-        return count
     }
 #endif
 }
