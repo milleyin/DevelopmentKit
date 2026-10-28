@@ -71,15 +71,8 @@ extension DevelopmentKit.SysInfo {
         /// 无法获取 CPU 快照（可能是 `host_processor_info` 失败）
         case cpuSnapshotFailed
         
-        /// CPU 占用率计算失败（数据结构异常或除以零）
-        case cpuCalculationFailed
-        
         /// 无法取得内建电池信息（如台式机、无电池设备，或 IOPS 缺少电量字段）
         case batteryUnavailable
-        
-        /// 无法读取电池温度（`AppleSmartBattery` 数据缺失）
-        @available(*, deprecated, message: "温度改为 MacBatteryInfo.temperature 为 nil，不再产生此错误；下一提交物理删除")
-        case temperatureUnavailable
         
         /// 未知错误（将其他系统错误封装）
         case unknown(Error)
