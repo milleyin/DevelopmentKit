@@ -19,7 +19,8 @@ let package = Package(
         .target(
             name: "DevelopmentKit",
             dependencies: [],
-            path: "Sources/DevelopmentKit"
+            path: "Sources/DevelopmentKit",
+            resources: [.process("PrivacyInfo.xcprivacy")]
         ),
         .testTarget(
             name: "DevelopmentKitTests",

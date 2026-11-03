@@ -12,11 +12,12 @@ import Foundation
 
 public enum DevelopmentKit {
     
-    public static let version: String = "0.0.9(2025050)"
+    public static let version: String = "0.0.12(2026071)"
 
     /// 网络功能命名空间
     public enum Network {}
     /// 系统信息
+    /// - Important: 本命名空间读出的硬件与系统信息（型号、内存、磁盘、电池等）只用于在本机向用户显示。不要上传，也不要与其他设备信息组合用于识别设备：Apple 不允许设备指纹，其中磁盘空间一项的申报理由（`85F4.1`）更明确要求数据不得离开设备。
     public enum SysInfo {}
     /// 实用工具
     public enum Utilities {}

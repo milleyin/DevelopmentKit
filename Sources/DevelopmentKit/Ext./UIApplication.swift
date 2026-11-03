@@ -6,8 +6,9 @@
 //
 
 import Foundation
+#if os(iOS)
 import UIKit
-
+#endif
 #if os(iOS)
 extension UIApplication {
     /**

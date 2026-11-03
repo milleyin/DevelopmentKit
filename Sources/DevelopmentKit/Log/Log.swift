@@ -33,6 +33,7 @@ extension DevelopmentKit {
 
      ```swift
      Log("应用启动成功")
+     Log("用户点击了按钮", file: #file, line: #line)
      ```
 
      - Parameters:
@@ -52,7 +53,8 @@ extension DevelopmentKit {
         // 在外部先转成字符串，避免在 Task 中直接使用泛型 T
         let messageString = String(describing: message)
 
-        Task { @MainActor in
+        // 直接在后台创建 Task，LogLocalManager 作为 actor 已提供线程安全
+        Task {
             await LogLocalManager.shared.saveLog(message: messageString,
                                                  file: fileName,
                                                  line: line)
